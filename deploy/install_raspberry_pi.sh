@@ -244,7 +244,7 @@ setup_backup_encryption() {
   export BACKUP_AGE_RECIPIENT="${recipient}"
   export BACKUP_EXTERNAL_MOUNT="${external_mount}"
   export BACKUP_EXTERNAL_DIR="${external_dir}"
-  export BACKUP_EXTERNAL_RETENTION_DAYS="${external_retention:-90}"
+  export BACKUP_EXTERNAL_RETENTION_DAYS="${external_retention:-30}"
 }
 
 setup_backup_encryption

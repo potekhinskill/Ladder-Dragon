@@ -84,6 +84,15 @@
 - **Reuse:** distinguish a reproduced mechanism from a proven production cause; unknown native metadata stays unknown.
 - **Retention:** use existing status and log lifecycles without a new persistent store or maintenance job.
 
+### 2026-10-08 — Bound backup history without pressure-driven evidence deletion
+
+- **Context:** frequent deployment backups filled the external disk despite successful age-based rotation.
+- **Decision:** preserve three latest copies, seven days of all copies, and daily copies within a default 30-day horizon.
+- **Safety:** verify protected recovery copies before deletion and require an 8 GiB external reserve before archive creation.
+- **Boundary:** low capacity blocks new backup work; it never permits deletion of protected archives, live accounting, or unresolved evidence.
+- **Audit:** record planned and completed deletions under the backup lock in a bounded operational journal.
+- **Activation:** existing explicit host retention settings require separate reviewed configuration changes.
+
 ### 2026-09-16 — Serialize backup writers before status ownership
 
 - **Context:** scheduled and post-update backups can overlap despite service start ordering.

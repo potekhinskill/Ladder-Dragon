@@ -12,7 +12,7 @@ RUNTIME_STATUS_FILE="${BACKUP_RUNTIME_STATUS_FILE:-/run/mybot/backup_status.json
 BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
 BACKUP_EXTERNAL_MOUNT="${BACKUP_EXTERNAL_MOUNT:-}"
 BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
-BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
+BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-30}"
 BACKUP_STAGING_RETENTION_MINUTES=60
 BACKUP_LOCAL_MIN_FREE_BYTES=8589934592
 STATUS_ARCHIVE_NAME=""
@@ -202,31 +202,137 @@ rebuild_public_index() {
 }
 
 prune_expired_external_backups() {
-  local latest_archive="" expired archive_checksum retention_minutes
-  [[ -n "${BACKUP_EXTERNAL_DIR}" ]] || return 0
-  retention_minutes=$((BACKUP_EXTERNAL_RETENTION_DAYS * 24 * 60))
+  # Self-contained for the signed pre-checkout runner. The parent owns the lock
+  # and pins EXTERNAL_STORE to the mounted external filesystem.
+  python3 - "${EXTERNAL_STORE}" "${BACKUP_EXTERNAL_RETENTION_DAYS}" <<'PY'
+import hashlib
+import json
+import os
+import re
+import stat
+import sys
+from datetime import datetime, timedelta, timezone
 
-  # Reclaim expired external capacity before writing a new archive. Preserve the
-  # newest encrypted archive until a replacement is verified and published.
-  latest_archive="$({
-    find "${EXTERNAL_STORE}/" -maxdepth 1 -type f \
-      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
-      -printf '%T@ %p\n'
-  } | sort -nr | sed -n '1{s/^[^ ]* //;p;}')"
+directory, retention = sys.argv[1], int(sys.argv[2])
+if not 7 <= retention <= 36500:
+    raise SystemExit("[FAIL] backup retention must be between 7 and 36500 days")
+pattern = re.compile(r"ladder-dragon-(\d{4}-\d{2}-\d{2}-\d{6})\.tgz\.age")
+now = datetime.now(timezone.utc)
+fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
 
-  while IFS= read -r -d '' expired; do
-    [[ "${expired}" == "${latest_archive}" ]] && continue
-    archive_checksum="${expired}.sha256"
-    rm -f -- "${expired}" "${archive_checksum}"
-  done < <(
-    find "${EXTERNAL_STORE}/" -maxdepth 1 -type f \
-      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
-      -mmin +"${retention_minutes}" -print0
-  )
+def identity(name):
+    info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise ValueError("unsafe archive or checksum type")
+    return info.st_ino, info.st_size, info.st_mtime_ns
 
-  find "${EXTERNAL_STORE}/" -maxdepth 1 -type f \
-    -name 'inventory-*.txt' \
-    -mmin +"${retention_minutes}" -delete
+def checksum(name):
+    side = name + ".sha256"
+    before = identity(side)
+    if before[1] > 256:
+        raise ValueError("oversized checksum")
+    with os.fdopen(os.open(side, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd), "r", encoding="ascii") as stream:
+        fields = stream.read(257).split()
+    if identity(side) != before or len(fields) != 2 or fields[1] != name:
+        raise ValueError("checksum identity mismatch")
+    if re.fullmatch(r"[0-9a-f]{64}", fields[0]) is None:
+        raise ValueError("invalid checksum")
+    return fields[0], before
+
+def verify(name):
+    before = identity(name)
+    if before[1] <= 0:
+        raise ValueError("empty archive")
+    expected, _ = checksum(name)
+    digest = hashlib.sha256()
+    with os.fdopen(os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd), "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if identity(name) != before or digest.hexdigest() != expected:
+        raise ValueError("retained archive checksum mismatch")
+    return before, identity(name + ".sha256")
+
+def audit(event, name, size):
+    # Disposable audit, bounded independently from authoritative source evidence.
+    target = "backup-retention.jsonl"
+    try:
+        info = identity(target)
+    except FileNotFoundError:
+        info = None
+    if info and info[1] >= 1024 * 1024:
+        os.replace(target, target + ".1", src_dir_fd=fd, dst_dir_fd=fd)
+    out = os.open(target, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+    with os.fdopen(out, "w") as stream:
+        stream.write(json.dumps({"at": now.isoformat(), "event": event, "archive": name, "bytes": size}) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+try:
+    archives = {}
+    for name in os.listdir(fd):
+        match = pattern.fullmatch(name)
+        if not match:
+            continue
+        timestamp = datetime.strptime(match[1], "%Y-%m-%d-%H%M%S").replace(tzinfo=timezone.utc)
+        if timestamp > now:
+            raise ValueError("future archive timestamp")
+        archives[name] = (timestamp, identity(name))
+        if len(archives) > 10000:
+            raise ValueError("archive inventory limit exceeded")
+    names = sorted(archives)
+    daily = {archives[name][0].date(): name for name in names}
+    protected = set(names[-3:])
+    remove = []
+    replacements = set()
+    for name in names:
+        timestamp, info = archives[name]
+        if name in protected or now - timestamp <= timedelta(days=7):
+            continue
+        if now - timestamp > timedelta(days=retention):
+            remove.append(name)
+        elif name != daily[timestamp.date()]:
+            remove.append(name)
+            replacements.add(daily[timestamp.date()])
+    if remove:
+        if len(protected) != 3:
+            raise ValueError("three recovery copies are required before cleanup")
+        # Verify only protected copies and actual daily replacements, not history.
+        verified = {name: verify(name) for name in sorted(protected | replacements)}
+        checksums = {name: checksum(name)[1] for name in remove}
+        for name, (archive_info, checksum_info) in verified.items():
+            if identity(name) != archive_info or identity(name + ".sha256") != checksum_info:
+                raise ValueError("retained archive changed before cleanup")
+        for name in remove:
+            if identity(name) != archives[name][1]:
+                raise ValueError("archive changed before cleanup")
+        for name in remove:
+            if identity(name) != archives[name][1] or identity(name + ".sha256") != checksums[name]:
+                raise ValueError("archive changed during cleanup")
+            audit("delete_planned", name, archives[name][1][1])
+            os.unlink(name, dir_fd=fd)
+            os.unlink(name + ".sha256", dir_fd=fd)
+            audit("deleted", name, archives[name][1][1])
+    print(json.dumps({"backup_retention": "PASS", "removed": len(remove),
+                      "freed_bytes": sum(archives[name][1][1] for name in remove)}))
+except (OSError, ValueError, UnicodeError):
+    raise SystemExit("[FAIL] backup retention verification or cleanup failed")
+finally:
+    os.close(fd)
+PY
+}
+
+check_external_capacity() {
+  # Keep a reserve plus a conservative bound for tar, compression and encryption.
+  python3 - "${EXTERNAL_STORE}" "${1:-0}" <<'PY'
+import os
+import sys
+
+store, staged = sys.argv[1], int(sys.argv[2])
+space = os.statvfs(store)
+required = 8 * 1024**3 + 2 * staged + 1024**2
+if staged < 0 or space.f_bavail * space.f_frsize < required:
+    raise SystemExit("[FAIL] insufficient external capacity; protected backups preserved")
+PY
 }
 
 # Only private transient source snapshots remain local. Completed ciphertext
@@ -236,6 +342,7 @@ prune_stale_local_temporary_files "${BACKUP_DIR}"
 prune_stale_local_temporary_files "${PUBLIC_BACKUP_DIR}"
 prune_stale_local_temporary_files "${EXTERNAL_STORE}/"
 prune_expired_external_backups
+check_external_capacity
 [[ "$(df -PB1 "${BACKUP_DIR}" | awk 'NR==2 {print $4}')" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] || {
   echo "[FAIL] insufficient local capacity for private SQLite staging" >&2
   exit 1
@@ -378,6 +485,8 @@ PY
 
 # The archive is never written to disk unencrypted. A same-directory rename
 # prevents the dashboard or mirror loop from observing partial ciphertext.
+staged_archive_bound="$(( $(du -sb "${DEST}" | awk '{print $1}') + $(find "${DEST}" -printf '.' | wc -c) * 8192 ))"
+check_external_capacity "${staged_archive_bound}"
 archive_name="ladder-dragon-${STAMP}.tgz.age"
 [[ ! -e "${EXTERNAL_STORE}/${archive_name}" ]] || {
   echo "[FAIL] backup archive identity already exists" >&2

@@ -47,7 +47,7 @@ def read_backup_env(path: Path, *, expected_uid: int = 0, expected_gid: int = 0)
     recipient = values.get("BACKUP_AGE_RECIPIENT", "")
     mount = values.get("BACKUP_EXTERNAL_MOUNT", "")
     directory = values.get("BACKUP_EXTERNAL_DIR", "")
-    retention = values.get("BACKUP_EXTERNAL_RETENTION_DAYS", "90")
+    retention = values.get("BACKUP_EXTERNAL_RETENTION_DAYS", "30")
     if not AGE_RE.fullmatch(recipient):
         raise ValueError("BACKUP_AGE_RECIPIENT is invalid")
     if bool(mount) != bool(directory):
@@ -57,8 +57,8 @@ def read_backup_env(path: Path, *, expected_uid: int = 0, expected_gid: int = 0)
             raise ValueError("external backup paths contain forbidden characters")
         if not directory.startswith(mount.rstrip("/") + "/"):
             raise ValueError("external backup directory must be below its mount")
-    if not retention.isdigit() or int(retention) > 36500:
-        raise ValueError("backup retention must be an integer between 0 and 36500")
+    if not retention.isdigit() or not 7 <= int(retention) <= 36500:
+        raise ValueError("backup retention must be an integer between 7 and 36500")
     return [recipient, mount, directory, retention]
 
 

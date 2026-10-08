@@ -225,6 +225,34 @@ Logrotate reports success and passes its debug check; the sanitized-log export t
 Journald uses volatile storage, a 50 MiB runtime ceiling, 10 MiB files, and seven-day retention.
 Its observed usage is approximately 43 MiB; logs do not explain the external disk pressure.
 
+### Encrypted backup rotation
+
+Regular encrypted backups are recovery snapshots, not the authoritative live accounting or evidence stores.
+The default horizon is 30 days. Existing explicit host settings require an approved configuration change.
+The policy always preserves the three latest regular archives and every archive from the last seven days.
+Within the remaining horizon, it preserves the latest regular archive for each UTC calendar day.
+Older archives expire, except for the protected three.
+Preinstallation archives, evidence subdirectories, system mirrors, and unknown files remain untouched.
+
+The backup lock covers planning, verification, deletion, and publication.
+Cleanup checks the three protected ciphertexts and daily replacements against their exact SHA-256 sidecars.
+Missing, corrupt, linked, future-dated, or changed archive evidence blocks cleanup.
+Verification reads only selected recovery copies, not the entire retained history on every run.
+Fewer than three archives remain intact; initial backup creation is still permitted.
+An inventory exceeding 10,000 regular archives requires manual review.
+
+The external disk requires an 8 GiB reserve before staging and a conservative archive allowance before encryption.
+Capacity failure never authorizes deletion of protected recovery copies or source evidence.
+Other writers can consume capacity after admission; this policy is not a global disk quota.
+The existing daily and post-update backup jobs run the policy; no new background writer is added.
+
+The external `backup-retention.jsonl` journal records archive names, byte counts, timestamps, and planned or completed deletions.
+It is disposable operational telemetry, not private archive contents or recovery authority.
+It rotates to one previous file at 1 MiB; a record can exceed the threshold by less than 1 KiB.
+Audit write failure prevents the next deletion; a planned record without completion requires inspection after interruption.
+No independent backup dependency applies to these bounded audit files.
+Ciphertext checks do not establish successful decryption or complete restoration.
+
 ### Other retained stores
 
 - Historical replay checkpoints are derived, immutable complete-path results, not complete selection reports.
@@ -259,7 +287,7 @@ Its observed usage is approximately 43 MiB; logs do not explain the external dis
 - Encrypted backup archives reside only on the external disk.
 - Local storage contains temporary private staging and public archive pointers, not archive mirrors.
 - Old private staging uses an exact timestamp grammar and a sixty-minute minimum age.
-- External rotation preserves the newest encrypted archive.
+- External rotation preserves the three latest regular encrypted archives and applies the tiered policy above.
 - Each run verifies its new external archive before publishing its pointer.
 
 The backup includes database archives. Do not delete an archive only because

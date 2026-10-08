@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.352] — 2026-10-08
+
+### Changed
+- Default encrypted backup retention to 30 days; preserve existing explicit host configuration until reviewed activation.
+- Keep three latest regular archives, all copies for seven days, and one daily copy within the remaining horizon.
+- Verify protected ciphertext and daily replacements before deletion under the existing backup lock.
+- Record deletions in a bounded audit and require external free-space reserves before staging and encryption.
+- Preserve preinstallation archives, source evidence, live databases, and system mirrors.
+
+### Verified
+- Initial synthetic retention and adjacent deployment checks pass: 125 tests, one platform skip.
+- The complete test suite, source compilation, and five safety audits pass after the final code changes.
+- Raspberry Pi configuration and scheduled cleanup remain unchanged during local implementation.
+
 ## [2.20.351] — 2026-10-06
 
 ### Security

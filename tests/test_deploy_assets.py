@@ -1212,10 +1212,10 @@ def test_backup_writes_only_external_ciphertext_and_public_links():
 def test_backup_prunes_external_retention_before_encryption():
     backup = read("deploy/backup_raspberry_pi.sh")
     assert backup.index("prune_expired_external_backups\n") < backup.index('tar -C "${BACKUP_DIR}"')
-    assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
-    assert 'rm -f -- "${expired}" "${archive_checksum}"' in backup
-    assert "retention_minutes=$((BACKUP_EXTERNAL_RETENTION_DAYS * 24 * 60))" in backup
-    assert '-mmin +"${retention_minutes}" -print0' in backup
+    assert 'protected = set(names[-3:])' in backup
+    assert 'verify(name)' in backup
+    assert 'os.unlink(name, dir_fd=fd)' in backup
+    assert 'timedelta(days=retention)' in backup
     assert '-mtime' not in backup
 
 

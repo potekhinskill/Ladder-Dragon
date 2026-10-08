@@ -882,7 +882,7 @@ Configure the external paths in `/etc/ladder-dragon/backup.env`:
 ```dotenv
 BACKUP_EXTERNAL_MOUNT=/mnt/usb1
 BACKUP_EXTERNAL_DIR=/mnt/usb1/ladder-dragon-backups
-BACKUP_EXTERNAL_RETENTION_DAYS=90
+BACKUP_EXTERNAL_RETENTION_DAYS=30
 ```
 
 For first installation, provide `BACKUP_EXTERNAL_MOUNT` and `BACKUP_EXTERNAL_DIR` in the privileged installer environment.
@@ -909,8 +909,19 @@ Unavailable external evidence also blocks destructive database retention.
 Its archive links reference external ciphertext; downloads create no local archive copy.
 Only the latest archive links remain public.
 Disposable public inventories expire after one hour during the next backup.
-External archives retain `BACKUP_EXTERNAL_RETENTION_DAYS`.
-Rotation preserves the newest archive until its verified replacement exists.
+The default external archive horizon is 30 days; existing explicit settings remain unchanged.
+WARNING: Shorter retention permanently removes older recovery points after the next successful cleanup.
+After operator approval, change the existing root-owned setting to 30 before activation.
+Keep the three latest regular archives regardless of age.
+Keep all regular archives for seven days, then the latest archive per UTC day until the configured horizon.
+Verify protected copies and actual daily replacements before cleanup; a verification error blocks deletion.
+Preinstallation archives, evidence directories, and system mirrors are outside this policy.
+Require 8 GiB of external free space before staging, then reserve additional capacity for the staged archive.
+Insufficient capacity fails the backup; it does not permit deletion of protected copies.
+These checks are admission checks, not a filesystem quota against concurrent unrelated writers.
+The existing backup lock serializes rotation and publication.
+An external two-file audit records planned and completed deletions; each file remains approximately 1 MiB or smaller.
+The policy verifies ciphertext integrity, not decryption or complete restore capability.
 
 Legacy local duplicates retire only after exact external checksum verification.
 Unique or mismatched legacy archives remain for operator review.
