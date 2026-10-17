@@ -13,10 +13,33 @@ An occupied slot blocks creation; no recovery or retention operation removes exi
 The offline operator command uses sealed anonymous memory for the recovery identity and creates no temporary plaintext loader file.
 Descriptors close after recovery; parent-death signals terminate age children if the isolated worker terminates.
 The command rejects disk-backed swap and unsafe core-dump settings before private input; it does not guarantee physical memory erasure.
-The temporary RAM loader file for a future diagnostic remains planned and requires separate activation review.
+The protected diagnostic consumes recovered enrollment bytes in process memory; it creates no temporary plaintext loader file.
 The local writer does not authorize production activation or automatic reuse of a potentially revoked reference.
 
 ## Historical source claims
+
+The offline history-input verifier creates no persistent record and performs no deletion.
+Its proposed `history-launch-inputs-v1` directory contains one encrypted diagnostic and one encrypted export-key recovery copy.
+The diagnostic is authoritative unresolved source evidence, bounded to 3 MiB, not accepted accounting data.
+The recovery copy is protected key custody, bounded to 16 KiB.
+The protected manifest is an operator trust assertion, bounded to 4096 bytes, not an authenticated exchange statement.
+Provisioning remains separately reviewed; the local diagnostic writer permits exclusive creation only, without scheduled collection or automatic rotation.
+Preserve these inputs until explicit retirement review, even when diagnostic freshness expires.
+The local diagnostic producer returns at most 3 MiB of ciphertext in memory and creates no persistent record.
+It does not overwrite the proposed diagnostic file or update its trust manifest.
+The protected launcher reserves the diagnostic filename before recovery or requests, without replacing existing content.
+Retain empty reservations and partial ciphertext indefinitely until explicit retirement review, with the same source-evidence classification.
+The existing directory must use mode 0700; the reserved file must use mode 0600.
+Both remain root-owned in the hardened production process; only the external mount can belong to the exact local `bot` account.
+The writer rejects directory replacement through device and inode comparisons; failures preserve the original reserved file.
+Require 8 GiB free space plus the 3 MiB ciphertext allowance before reservation.
+The writer performs no cleanup, rotation, manifest update, or accounting mutation; preservation does not depend on a successful request.
+The separate protected `diagnostic-launch.json` is an operator trust assertion bounded to 4096 bytes, retained until explicit retirement review.
+The existing `diagnostic-signing.pem` is protected private key custody, bounded to 4096 bytes; this integration neither creates nor deletes it.
+Signer retirement requires an independent lifecycle review; retain public verification and recovery custody while any dependent package remains unresolved.
+No automatic archive or backup job is added; verify encrypted custody separately before retirement.
+No plaintext UID, responses, or keys belong in ordinary logs or Git.
+Independent recovery and verified encrypted custody remain prerequisites before production use.
 
 The historical SOL collector creates authoritative unresolved source claims, not accepted accounting records or evidence of complete history.
 One exclusive `historical-sol-source-v1` slot holds one encrypted `bundle.fernet`, bounded to 16 MiB on an external mount.

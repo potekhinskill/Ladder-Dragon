@@ -28,6 +28,8 @@ Help output is the authoritative option reference.
 | `audit_user_stream_soak` | checks the current reviewed epoch for duration, stability, and events |
 | `check_technical_english` | checks current guides against the project writing profile |
 | `account_enrollment` | creates one encrypted operator claim or verifies its recovery offline; explicit confirmation and public pins are required |
+| `history_launch_prepare` | checks the pinned host and storage offline; an explicit manifest pin enables protected input verification, never collection |
+| `account_diagnostic_launch` | requires explicit diagnostic approval and a terminal; delegates one attempt to the bounded parent, never historical collection |
 | `semgrep_scan` | tests local Semgrep rules or scans production Python paths |
 | `production_soak_report` | builds a sanitized non-mutating soak report |
 | `record_bnb_public` | records bounded public BNBUSDT observations in two exclusive external slots, with optional pinned-credential signing; never authorizes replay |

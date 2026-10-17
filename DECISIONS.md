@@ -1,5 +1,46 @@
 # Engineering decisions
 
+### 2026-10-17 — Separate mount ownership from private output ownership
+
+- **Context:** the production external mount belongs to `bot`, while hardened diagnostic output requires root ownership.
+- **Decision:** allow only root or the exact local `bot` account at the mount; keep ancestors and private output root-owned.
+- **Guards:** forbid group and other writes; require directory mode 0700, file mode 0600, exclusive creation, and one file link.
+- **Identity:** compare the named directory with its retained device and inode before requests, before writes, and after synchronization.
+- **Evidence:** 157 focused tests and 5502 complete-suite tests pass, with two skips; compilation and five safety audits pass.
+- **Limits:** replacement blocks success and preserves the original file; future availability against a compromised mount owner is not guaranteed.
+- **Authority:** local compatibility does not authorize provisioning, API collection, deployment, or HALT changes.
+
+### 2026-10-16 — Arm the diagnostic deadline before request acknowledgement
+
+- **Context:** recovery input needs a separate deadline, while DNS can exceed cooperative HTTP timeouts.
+- **Decision:** keep secrets inside one hardened worker; an external parent acknowledges requests only after arming the 35-second deadline.
+- **Guards:** bound preparation to 300 seconds and protocol output to 2048 bytes; terminate and reap timeout or protocol failures.
+- **Custody:** reserve the external ciphertext filename exclusively before private recovery; preserve empty reservations, partial files, and completed evidence after failure.
+- **Evidence:** 271 focused synthetic checks pass, including real child termination, acknowledgement, recovery mismatch, occupied slots, and interrupted persistence.
+- **Completion:** 5481 complete-suite tests pass, with two skips; compilation, five safety audits, and documentation checks pass.
+- **Architecture:** share safe status through a separate contract module; the new diagnostic modules introduce no observed static import cycle.
+- **Limits:** this integration neither provisions production trust nor permits historical collection, accounting imports, HALT removal, or replay.
+
+### 2026-10-16 — Produce diagnostic claims at the request owner
+
+- **Context:** the offline verifier requires signed response bytes; a prior diagnostic summary cannot supply those observations.
+- **Decision:** use the canonical three-request diagnostic owner to deliver validated raw responses directly to a private signing and encryption sink.
+- **Guards:** validate key bindings before requests; round-trip the signed envelope through the consumer; release no package after failed observations.
+- **Evidence:** 180 focused synthetic tests pass, including exact-byte round trips, identity and permission failures, wrong counts, and summary substitution.
+- **Completion:** 5427 complete-suite tests pass, with two skips; compilation, five safety audits, and documentation checks pass.
+- **Limits:** code and encrypted-enrollment pins remain caller custody assertions; production needs a protected process deadline and exclusive ciphertext writer.
+- **Retention:** the producer writes nothing; its bounded ciphertext does not authorize manifest replacement, collection, accounting imports, or replay.
+
+### 2026-10-16 — Bind offline history prerequisites to exact diagnostic claims
+
+- **Context:** a diagnostic PASS summary does not bind the account reference, credential, code revision, or observation time.
+- **Decision:** require an independently pinned manifest, protected encrypted inputs, actual key recovery, and signed exact diagnostic responses.
+- **Guards:** validate the host before private access; recompute identity and read-only permissions; reject stale, future, altered, or substituted inputs.
+- **Evidence:** 165 focused synthetic tests and 5406 complete-suite tests pass, with two skips; compilation and five safety audits pass.
+- **Limits:** trusted collector claims are not exchange signatures, historical-fill authentication, or collection authority; all admission flags remain false.
+- **Reuse:** never reconstruct a signed observation from a summary; review real capture integration and production custody separately.
+- **Retention:** the verifier creates no record and deletes nothing; preserve encrypted source inputs until explicit retirement review.
+
 ### 2026-10-05 — Reuse exact statistical training prefixes without caching authority
 
 - **Context:** two runtime profiles identify repeated statistical training and prediction summary queries as SHADOW hotspots.

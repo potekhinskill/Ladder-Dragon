@@ -68,9 +68,25 @@ def diagnose_account(*, enrollment_path, expected_reference, credentials):
     Success proves only this diagnostic comparison, not historical provenance.
     Run only with separate live authority and an enforced outer process limit.
     """
+    return _diagnose(enrollment_path=enrollment_path, expected_reference=expected_reference,
+                     credentials=credentials)
+
+
+def _diagnose(*, enrollment_path, expected_reference, credentials, package=None, recovered=None):
+    """Shared request owner; an optional private sink receives only validated observations."""
     stage = 'enrollment'
     try:
-        record = load_enrollment(enrollment_path, expected_reference=expected_reference)
+        if recovered is None:
+            record = load_enrollment(enrollment_path, expected_reference=expected_reference)
+        else:
+            from ladder_dragon.strategy.enrollment_registration import verify_recovered
+            if enrollment_path is not None or package is None:
+                raise ValueError
+            record = verify_recovered(recovered, expected_reference=expected_reference,
+                                      expected_scope=package.pins['credential_scope'])
+        if package is not None:
+            stage = 'package_binding'
+            package.bind(record)
         stage = 'credential'
         if type(credentials) is not tuple or len(credentials) != 2:
             raise ValueError
@@ -91,7 +107,8 @@ def diagnose_account(*, enrollment_path, expected_reference, credentials):
             stage = 'permissions'
             client.signed('GET', PERMISSIONS, timeout=5)
             stage = 'validation'
-            wall_elapsed = time.time_ns() // 1000000 - started_wall
+            finished_wall = time.time_ns() // 1000000
+            wall_elapsed = finished_wall - started_wall
             mono_elapsed = time.monotonic_ns() // 1000000 - started_mono
             if (time.monotonic() >= session.deadline or wall_elapsed < 0
                     or abs(wall_elapsed - mono_elapsed) > 2):
@@ -103,6 +120,13 @@ def diagnose_account(*, enrollment_path, expected_reference, credentials):
             result['stage'] = stage
             if result['status'] == 'CLAIMS_MATCH_ONLY':
                 result['status'] = 'DIAGNOSTIC_MATCH_ONLY'
+                if package is not None:
+                    stage = 'package'
+                    # No summary-to-evidence conversion: use this request owner's raw bodies.
+                    package.finish(record=record, account_body=account_body,
+                        permissions_body=client.raw, started_ms=started_wall,
+                        finished_ms=finished_wall, elapsed_ms=mono_elapsed,
+                        request_count=session.calls)
             return result
     except (OSError, ValueError, TypeError, KeyError, RecursionError, OverflowError,
             InvalidOperation, RuntimeError, requests.RequestException, HTTPError):

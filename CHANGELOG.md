@@ -3,6 +3,44 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.353] — 2026-10-17
+
+### Added
+- Add an explicit diagnostic CLI that checks pins and terminal availability before one bounded-parent invocation; it does not activate collection automatically.
+- Add an offline history-launch preparation command with explicit confirmation, an isolated interpreter, and a bounded process deadline.
+- Check host restrictions, the exact checkout, HALT presence, the external device, free capacity, and an unused destination.
+- Return fixed status fields without credential access, collection authority, or persistent writes.
+- Keep the production collection dispatcher unimplemented until protected integration and prerequisite evidence receive review.
+- Add opt-in protected enrollment and Fernet-key recovery checks after host validation, with fixed paths and independent manifest pins.
+- Verify bounded encrypted diagnostic signatures, scope, freshness, account identity, and read-only permissions without network requests.
+- Reject summary-only diagnostics; preserve false collection and replay authority after successful input verification.
+- Connect signed diagnostic production to the canonical three-request chain; verify exact observations before encryption and return no plaintext package.
+- Validate signer, encryption, enrollment, and credential pins before requests; keep production activation separately gated.
+- Add an opt-in hardened diagnostic process with a 300-second preparation limit and a separately acknowledged 35-second request deadline.
+- Keep keys and recovered enrollment local to the worker; bound safe status output and kill and reap timed-out workers.
+- Reserve the encrypted diagnostic file exclusively before requests; preserve empty, interrupted, and completed files without overwrite or cleanup.
+- Keep production activation, final trust registration, historical collection, and HALT changes outside the local integration.
+
+### Fixed
+- On 2026-10-17, permit the exact local `bot` account as external mount owner without changing private-directory ownership or permissions.
+- Apply the same mount-owner policy to preparation and reservation; retain strict ancestors and reject unknown owners or writable paths.
+- Revalidate the named diagnostic directory against retained descriptors before requests, writes, and success; preserve failed reservations without cleanup.
+
+### Verified
+- Diagnostic CLI, supervised-launch, and architecture-layout checks pass locally: 60 tests, without production access.
+- Initial synthetic launcher, host, and process checks pass: 98 tests.
+- Before protected-input integration, launcher and surface checks pass: 64 tests, including rejection of an excessive JSON exponent.
+- Before protected-input integration, the complete suite passes: 5358 tests, two skips; compilation and all five safety audits pass.
+- Protected-input integration passes 165 focused tests and the complete suite: 5406 tests, two skips.
+- Compilation, all five safety audits, and documentation checks pass after protected-input integration.
+- No Raspberry Pi activation, exchange request, or HALT change occurs during implementation.
+- Local producer and adjacent checks pass: 180 synthetic tests; production custody and activation remain unverified.
+- After producer integration, the full suite passes: 5427 tests, two skips; compilation, five safety audits, and documentation checks pass.
+- Protected launch and persistence pass 271 focused tests and the full suite: 5481 tests, two skips.
+- Compilation, five safety audits, documentation checks, and new-module static cycle checks pass after protected-launch integration.
+- On 2026-10-17, ownership and directory-identity regressions pass: 157 focused tests; the full suite passes with 5502 tests and two skips.
+- Compilation and all five safety audits pass after the ownership correction; Raspberry Pi ownership, permissions, and HALT remain unchanged.
+
 ## [2.20.352] — 2026-10-08
 
 ### Changed
