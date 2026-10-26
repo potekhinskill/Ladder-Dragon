@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-10-21 — Started full verification before fast checks finished
+
+- **Impact:** two early suite attempts were stopped after a legacy-size violation and a whitespace correction, wasting local verification work.
+- **Root cause:** the full suite started before architecture size results and final diff checks were available.
+- **Correction:** complete ownership of the unchanged transport exception set, preserve the size budget, and remove the trailing blank line.
+- **Prevention:** await focused tests, architecture results, and clean diff checks before starting the unchanged-candidate full suite.
+
+### 2026-10-20 — Missed a whole-module fingerprint during timing relocation
+
+- **Impact:** the first complete suite failed one supervisor syntax contract and required another full run.
+- **Root cause:** searches covered timing references but missed a whole-module fingerprint that does not name the moved helper.
+- **Correction:** normalize only the reviewed import during historical comparison; separately require the new owner through the harness.
+- **Prevention:** inspect whole-module contracts for every changed consumer and include them in focused verification before the complete suite.
+
 ### 2026-09-30 — Left an adjacent report reader outside failure coverage
 
 - **Impact:** the local report candidate could still abort instead of replacing stale output when prediction storage failed.

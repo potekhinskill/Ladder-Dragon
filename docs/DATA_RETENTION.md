@@ -3,7 +3,7 @@
 ## Operator account enrollment
 
 An enrollment is an authoritative operator assertion of the intended account and credential scope, not authenticated exchange history.
-The local writer uses one exclusive `account-enrollment-v1/enrollment.age` slot on the verified external mount.
+The local candidate uses one exclusive `/var/lib/ladder-dragon/account-enrollment-v1/enrollment.age` slot on the system filesystem.
 The plaintext claim is limited to 4096 bytes in memory; the persistent encrypted file is limited to 16 KiB.
 It contains no API credential pair; ordinary logs, Git, status pages, and plaintext backups must contain no UID or claim contents.
 Retain the encrypted assertion indefinitely until explicit review, including failed or interrupted ciphertext writes.
@@ -19,7 +19,7 @@ The local writer does not authorize production activation or automatic reuse of 
 ## Historical source claims
 
 The offline history-input verifier creates no persistent record and performs no deletion.
-Its proposed `history-launch-inputs-v1` directory contains one encrypted diagnostic and one encrypted export-key recovery copy.
+The candidate uses `/var/lib/ladder-dragon/history-launch-inputs-v1` for one encrypted diagnostic and one encrypted export-key recovery copy.
 The diagnostic is authoritative unresolved source evidence, bounded to 3 MiB, not accepted accounting data.
 The recovery copy is protected key custody, bounded to 16 KiB.
 The protected manifest is an operator trust assertion, bounded to 4096 bytes, not an authenticated exchange statement.
@@ -30,9 +30,13 @@ It does not overwrite the proposed diagnostic file or update its trust manifest.
 The protected launcher reserves the diagnostic filename before recovery or requests, without replacing existing content.
 Retain empty reservations and partial ciphertext indefinitely until explicit retirement review, with the same source-evidence classification.
 The existing directory must use mode 0700; the reserved file must use mode 0600.
-Both remain root-owned in the hardened production process; only the external mount can belong to the exact local `bot` account.
+Both remain root-owned in the hardened production process; all internal ancestors must be root-owned and forbid group or other writes.
+The internal paths must remain on the system filesystem; no fallback to the external disk is permitted.
 The writer rejects directory replacement through device and inode comparisons; failures preserve the original reserved file.
 Require 8 GiB free space plus the 3 MiB ciphertext allowance before reservation.
+Enrollment preparation requires the same reserve plus its 16 KiB ciphertext allowance.
+These bounded inputs are an operator-approved system-storage exception, not permission to store backup archives or historical bundles internally.
+Historical bundles and backup archives remain external; existing external inputs are never migrated, overwritten, or deleted automatically.
 The writer performs no cleanup, rotation, manifest update, or accounting mutation; preservation does not depend on a successful request.
 The separate protected `diagnostic-launch.json` is an operator trust assertion bounded to 4096 bytes, retained until explicit retirement review.
 The existing `diagnostic-signing.pem` is protected private key custody, bounded to 4096 bytes; this integration neither creates nor deletes it.

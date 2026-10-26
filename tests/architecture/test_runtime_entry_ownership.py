@@ -28,6 +28,13 @@ DIGESTS = {
 def test_runtime_implementation_syntax_is_unchanged(name):
     owner = RUNTIME_COMMANDS[name][0]
     tree = ast.parse((ROOT / (owner.replace(".", "/") + ".py")).read_text())
+    # Preserve the historical baseline across the reviewed timing relocation.
+    # The mandatory startup-timing contract independently requires the new owner.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "ladder_dragon.observability.startup_timing":
+            node.module = "ladder_dragon.supervision.startup_timing"
+        if isinstance(node, ast.ImportFrom) and node.module == "ladder_dragon.observability.latency_trace":
+            node.module = "ladder_dragon.execution.latency_trace"
     assert extraction_digest(tree) == DIGESTS[name]
 
 

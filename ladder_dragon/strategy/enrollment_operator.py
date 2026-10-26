@@ -109,8 +109,8 @@ def operate(value, *, expected_parent=None):
         stage = 'revision'
         host.check_revision(value['expected_code_sha'])
         stage = 'storage'
-        storage.external_store(host.EXTERNAL)
-        path = host.EXTERNAL / storage.SLOT / storage.FILE
+        storage.internal_store(host.PRIVATE_ROOT)
+        path = host.PRIVATE_ROOT / storage.SLOT / storage.FILE
         if value['mode'] == 'create':
             if os.path.lexists(path.parent):
                 raise ValueError
@@ -137,7 +137,7 @@ def operate(value, *, expected_parent=None):
             raise ValueError
         if value['mode'] == 'create':
             stage = 'storage'
-            directory = storage.reserve(host.EXTERNAL)
+            directory = storage.reserve(host.PRIVATE_ROOT)
             storage.store(directory, ciphertext)
         result = dict(status='RECOVERY_VERIFIED_CLAIM', stage='complete', recovery_verified=True,
             reference=reference, ciphertext_sha256=hashlib.sha256(ciphertext).hexdigest(),

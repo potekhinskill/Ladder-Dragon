@@ -7,6 +7,7 @@ Consumers import that owner and do not copy its values.
 
 - `execution/trade_accounting.py` owns symbol parsing and commission provenance.
 - `risk/asset_policy.py` owns risk valuation asset groups.
+- `market_data/tickers.py` owns public batch ticker validation; it imports risk asset groups without copying their policy.
 - `strategy/fee_defaults.py` owns non-authoritative research fee assumptions.
 - `strategy/indicators.py` owns named Average True Range algorithms.
 - `execution/binance_transport.py` owns authenticated exchange transport behavior.

@@ -53,7 +53,10 @@ def execute(value, begin):
         pins = manifest(host.protected_read(MANIFEST, maximum=4096, private=True),
                         value['manifest_sha256'], value['expected_code_sha'])
         stage = 'storage'
-        with storage.reserve(value['expected_device']) as (directory, fd):
+        # expected_device still pins the external historical archive disk in
+        # preparation. Diagnostic inputs must instead remain on the root disk.
+        input_device = storage.system_device()
+        with storage.reserve(input_device) as (directory, fd):
             setup = host.child_setup()
             stage = 'enrollment'
             cipher = host.protected_read(locations.ENROLLMENT, maximum=registration.MAX_CIPHER, private=True)
@@ -95,7 +98,7 @@ def execute(value, begin):
             checked = preparation.prepare({k: v for k, v in value.items() if k != 'manifest_sha256'}, os.getppid())
             if checked['stage'] != 'complete':
                 return report(checked['stage'])
-            storage.check(directory, fd, value['expected_device'], size=0)
+            storage.check(directory, fd, input_device, size=0)
             # Parent arms its 35-second deadline before acknowledging this barrier.
             begin()
             result, ciphertext = collect_signed_diagnostic(enrollment_path=None,
@@ -104,7 +107,7 @@ def execute(value, begin):
             if result['status'] != 'ENCRYPTED_DIAGNOSTIC_ONLY' or ciphertext is None:
                 return report(result['stage'])
             stage = 'persist'
-            details = storage.store(directory, fd, ciphertext, value['expected_device'])
+            details = storage.store(directory, fd, ciphertext, input_device)
             return report('complete', **details)
     except (OSError, ValueError, TypeError, KeyError, RuntimeError, RecursionError, OverflowError,
             InvalidOperation, UnsupportedAlgorithm, InvalidSignature, EOFError,

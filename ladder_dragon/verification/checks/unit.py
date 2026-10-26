@@ -18,6 +18,11 @@ from ladder_dragon.verification.architecture.summary_routes import check_summary
 from ladder_dragon.verification.architecture.security_routes import check_security_routes
 from ladder_dragon.verification.architecture.ai_routes import check_ai_routes
 from ladder_dragon.verification.architecture.ai_reporting import check_ai_reporting
+from ladder_dragon.verification.architecture.startup_timing import check_startup_timing
+from ladder_dragon.verification.architecture.read_timing import check_read_timing
+from ladder_dragon.verification.architecture.latency_trace import check_latency_trace
+from ladder_dragon.verification.architecture.market_tickers import check_market_tickers
+from ladder_dragon.verification.architecture.transport_errors import check_transport_errors
 from ladder_dragon.verification.checks.architecture import (
     check_architecture, check_architecture_references, check_architecture_surfaces, check_architecture_service_links,
     check_architecture_cycles, check_architecture_new_sizes, check_architecture_legacy_sizes,
@@ -38,6 +43,11 @@ def local_checks(context: HarnessContext) -> list[CheckSpec]:
         CheckSpec(name="architecture_security_routes", check=check_security_routes),
         CheckSpec(name="architecture_ai_routes", check=check_ai_routes),
         CheckSpec(name="architecture_ai_reporting", check=check_ai_reporting),
+        CheckSpec(name="architecture_startup_timing", check=check_startup_timing),
+        CheckSpec(name="architecture_read_timing", check=check_read_timing),
+        CheckSpec(name="architecture_latency_trace", check=check_latency_trace),
+        CheckSpec(name="architecture_market_tickers", check=check_market_tickers),
+        CheckSpec(name="architecture_transport_errors", check=check_transport_errors),
         CheckSpec(name="architecture_cycles", check=check_architecture_cycles),
         CheckSpec(name="architecture_new_sizes", check=check_architecture_new_sizes),
         CheckSpec(name="architecture_legacy_sizes", check=check_architecture_legacy_sizes),

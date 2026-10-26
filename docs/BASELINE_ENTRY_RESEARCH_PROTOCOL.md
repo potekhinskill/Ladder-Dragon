@@ -3,6 +3,14 @@
 Draft date: 2026-09-24.
 Status: proposed research design; no candidate, observation budget, or experiment launch is approved.
 
+## Input custody update: 2026-10-26
+
+The operator approves bounded diagnostic inputs on system storage; the [collection plan](HISTORICAL_SOURCE_COLLECTION_PLAN.md#internal-input-storage-candidate-2026-10-26) defines candidate paths and guards.
+This supersedes the external enrollment location in historical custody sections below.
+The installed release remains unchanged; do not use candidate paths before reviewed deployment.
+Independent account identity, credential pins, recovery verification, and separate API authorization remain mandatory.
+History bundles and backup archives remain on the external disk.
+
 ## Protocol review boundary: 2026-09-24
 
 The operator requests protocol agreement and a qualification closure plan.

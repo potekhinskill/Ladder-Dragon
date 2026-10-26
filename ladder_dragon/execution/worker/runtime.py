@@ -38,7 +38,7 @@ from ladder_dragon.execution.user_stream import (
 from ladder_dragon.execution.execution_latency import (
     append_execution_latency_sample,
 )
-from ladder_dragon.execution.latency_trace import LatencyTrace
+from ladder_dragon.observability.latency_trace import LatencyTrace
 from ladder_dragon.execution.market_data_stream import (
     BinanceMarketDataObserver,
     DecisionFreshnessPolicy,

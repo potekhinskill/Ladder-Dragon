@@ -4,6 +4,32 @@ Prepared: 2026-09-16.
 Status: local collector implementation; production collection remains unauthorized.
 Current authorization covers local implementation and synthetic verification, not publication, deployment, private requests, or accounting imports.
 
+## Internal input storage candidate: 2026-10-26
+
+The operator approves system-storage custody for bounded diagnostic inputs after exFAT rejects the required private permissions.
+This local candidate supersedes the input locations below, not the historical evidence, execution limits, or separate activation approvals.
+It is not deployed; the installed `v2.20.353` still uses the earlier external input paths.
+
+| Input | Candidate location |
+|---|---|
+| Encrypted account assertion | `/var/lib/ladder-dragon/account-enrollment-v1/enrollment.age` |
+| Encrypted export-key recovery | `/var/lib/ladder-dragon/history-launch-inputs-v1/export-key.age` |
+| Encrypted diagnostic | `/var/lib/ladder-dragon/history-launch-inputs-v1/diagnostic.fernet` |
+
+Manifests and the dedicated signer retain their fixed protected configuration paths.
+The history bundle remains `/mnt/usb1/historical-sol-source-v1/bundle.fernet`; backup archives remain external.
+The `expected_device` launcher option still pins the external disk during history preparation.
+The diagnostic writer independently requires the system filesystem and root-owned ancestors, rather than accepting that external device for private inputs.
+Every directory uses mode 0700 and every input file uses mode 0600; creation remains exclusive.
+The writer reopens ancestors and compares directory and file identity before accepting persistence.
+Retain existing byte ceilings, free-space reserves, failed reservations, request deadlines, and all false admission flags.
+See [retention limits](DATA_RETENTION.md#historical-source-claims) for this bounded internal exception.
+
+No automatic migration or fallback reads the earlier external paths.
+The empty external diagnostic directory remains preserved; it grants no activation authority.
+Release verification and separate deployment approval must precede use of the changed paths.
+Independent credential pins, enrollment, recovery verification, and exact diagnostic approval remain required.
+
 ## Activation proposal: 2026-10-16
 
 ### Production preflight review: 2026-10-16

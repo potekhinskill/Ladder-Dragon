@@ -116,7 +116,7 @@ def test_default_refuses_without_encryption_or_storage(value,tmp_path,monkeypatc
 
 
 def test_only_ciphertext_is_persisted_and_second_run_preserves(value,tmp_path,monkeypatch):
-    monkeypatch.setattr(storage,'external_store',lambda root:tmp_path)
+    monkeypatch.setattr(storage,'internal_store',lambda root:tmp_path)
     monkeypatch.setattr(storage,'encrypt_claim',lambda *a,**k:CIPHER)
     result=storage.create(tmp_path,value,recipient=RECIPIENT,expected_recipient_sha256=PIN,confirmed=True)
     assert result['status']=='ENCRYPTED_ENROLLMENT_CLAIM'
@@ -130,7 +130,7 @@ def test_only_ciphertext_is_persisted_and_second_run_preserves(value,tmp_path,mo
 
 
 def test_interrupted_ciphertext_is_preserved(value,tmp_path,monkeypatch):
-    monkeypatch.setattr(storage,'external_store',lambda root:tmp_path)
+    monkeypatch.setattr(storage,'internal_store',lambda root:tmp_path)
     directory=storage.reserve(tmp_path)
     def fail(fd):raise OSError('SENTINEL')
     monkeypatch.setattr(storage.os,'fsync',fail)
@@ -142,7 +142,7 @@ def test_interrupted_ciphertext_is_preserved(value,tmp_path,monkeypatch):
 
 
 def test_symlink_slot_preserved(tmp_path,monkeypatch):
-    monkeypatch.setattr(storage,'external_store',lambda root:tmp_path)
+    monkeypatch.setattr(storage,'internal_store',lambda root:tmp_path)
     target=tmp_path/'untouched';target.mkdir()
     (tmp_path/storage.SLOT).symlink_to(target)
     with pytest.raises(FileExistsError):storage.reserve(tmp_path)
@@ -150,7 +150,7 @@ def test_symlink_slot_preserved(tmp_path,monkeypatch):
 
 
 def test_group_writable_parent_rejected(tmp_path,monkeypatch):
-    monkeypatch.setattr(storage,'external_store',lambda root:tmp_path)
+    monkeypatch.setattr(storage,'internal_store',lambda root:tmp_path)
     tmp_path.chmod(0o770)
     with pytest.raises(ValueError):storage.reserve(tmp_path)
     assert not list(tmp_path.iterdir())
@@ -166,7 +166,7 @@ def test_error_result_never_contains_input(value,tmp_path,monkeypatch):
 
 def test_caller_mutation_cannot_change_stored_reference(value,tmp_path,monkeypatch):
     reference=value['reference']
-    monkeypatch.setattr(storage,'external_store',lambda root:tmp_path)
+    monkeypatch.setattr(storage,'internal_store',lambda root:tmp_path)
     def encrypt(frozen,**kwargs):
         value['reference']='SENTINEL'
         assert frozen['reference']==reference

@@ -23,6 +23,8 @@ Search additional history when a dependency or unresolved question requires it; 
 
 For store changes, also inspect [state ownership](ARCHITECTURE_STATE_MAP.md) and [retention](DATA_RETENTION.md).
 For relocated entry points, inspect the [surface map](ARCHITECTURE_SURFACE_MAP.md) and [local artifact boundaries](LOCAL_ARTIFACTS.md).
+For architecture continuation, apply the [maintenance selection policy](ARCHITECTURE_EVOLUTION_PLAN.md#maintenance-selection-policy) before choosing another extraction.
+For shared timing, preserve [telemetry ownership and callback lifetime](../DECISIONS.md#2026-10-20--keep-shared-startup-telemetry-outside-orchestration).
 For dashboard route extraction, preserve [live dependency bindings](../DECISIONS.md#2026-09-25--preserve-live-bindings-when-extracting-dashboard-routes) and inspect nested route inventories.
 For interpreter bootstrap changes, preserve [dependency-free early loading](../DECISIONS.md#2026-09-25--keep-interpreter-bootstrap-outside-verification-imports).
 For financial boundary changes, inspect [domain authorities](DOMAIN_AUTHORITIES.md).
@@ -54,6 +56,7 @@ Use the [Pi runbook](RASPBERRY_PI_INSTALL.md) for deployment procedures.
 
 ## Policy rationale
 
+See the [benefit-led maintenance decision](../DECISIONS.md#2026-10-20--select-architecture-work-by-demonstrated-benefit) for bounded architecture continuation.
 See the [change-type decision](../DECISIONS.md#2026-09-09--select-preparation-and-verification-by-actual-change-effects) and [applicability lesson](../MISTAKES.md#2026-09-09--relocated-universal-requirements-instead-of-narrowing-their-triggers).
 See the [preparation decision](../DECISIONS.md#2026-09-09--route-preparation-without-weakening-completion-evidence) and [completion lesson](../MISTAKES.md#2026-09-09--treated-individual-extractions-as-task-completion).
 Current [learning-record rules](../AGENTS.md#learning-records) govern new entries.

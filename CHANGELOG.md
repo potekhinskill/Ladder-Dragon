@@ -3,6 +3,45 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.354] — 2026-10-20
+
+### Changed
+- On 2026-10-26, place bounded enrollment, export-key recovery, and diagnostic ciphertext inputs on the system filesystem.
+- Require private ownership, exact modes, exclusive creation, system-device identity, and ancestor revalidation; preserve the independent external history-disk guard.
+- Keep history bundles and backup archives external; do not migrate, overwrite, delete, or activate existing sources automatically.
+- On 2026-10-21, separate safe transport diagnostics from bounded HTTP reading under an observability owner.
+- Preserve the exact exception-class set, retry behavior, diagnostic text, endpoint vocabulary, and response-reader implementation.
+- Require diagnostic ownership checks in local and release profiles without increasing the legacy adapter size budget.
+- On 2026-10-21, move unchanged public ticker validation into market_data and migrate the execution adapter and tests.
+- Require public parser ownership and narrow dependency checks in local and release profiles; retain canonical risk asset policy.
+- On 2026-10-21, move unchanged latency tracing into observability and migrate supervisor and worker imports together.
+- Require latency-trace ownership checks in local and release profiles without changing trace persistence or order workflows.
+- On 2026-10-21, move unchanged read telemetry into observability and migrate all three consumers together.
+- Remove two telemetry-only supervisor dependencies on execution; enforce shared context ownership through required local and release checks.
+- Move shared startup timing from supervision to observability without changing implementation syntax or phase behavior.
+- Update supervisor and worker imports together; remove the legacy implementation without a compatibility wrapper.
+- Require timing ownership and worker-binding checks in local and release profiles, including negative mutation tests.
+- Apply evidence-led architecture selection rules without weakening safety checks or publication boundaries.
+
+### Verified
+- For the internal-input storage change, pass 5666 tests with two skips, 257 focused tests, compilation, and all five safety audits.
+- Pass secret scanning and documentation checks; verify one empty root-owned internal directory on Pi without changing services or HALT.
+- After transport diagnostic separation, pass 5663 tests with two environment-dependent skips and 223 focused tests, including 31 new regressions.
+- Pass compilation, five safety audits, secret scanning, Semgrep, scoped architecture checks, and installed-package diagnostics with networking prohibited.
+- After the ticker relocation, pass 5632 tests with two environment-dependent skips and 138 focused tests, including 31 new regressions.
+- Pass compilation, five safety audits, secret scanning, Semgrep, architecture checks, and installed-package isolation checks after the ticker relocation.
+- Preserve exact wire-to-snapshot prices, current-price precedence, alternate-route validation, and original implementation syntax.
+- After the latency-trace relocation, pass 5601 tests with two environment-dependent skips and 187 focused tests.
+- Pass compilation, five safety audits, secret scanning, Semgrep, architecture checks, and isolated installed-wheel tests after this relocation.
+- Verify actual cancel-replace phase ordering, unchanged syntax, append behavior, and descriptor closure after a synthetic write failure.
+- On 2026-10-21, pass 5572 tests with two skips, including 32 new read-telemetry regressions; pass 232 focused tests.
+- Pass compilation, five safety audits, secret scanning, Semgrep, and architecture checks after the read-telemetry move.
+- Verify installed read producers and metrics with networking prohibited; preserve implementation syntax, context restoration, and parallel counter isolation.
+- Pass 5540 tests with two skips after correcting the historical supervisor syntax comparison; retain its original digest.
+- Pass 140 focused tests, compilation, five safety audits, architecture checks, and Semgrep.
+- Verify the installed timing owner and worker bindings with network access prohibited; no supervision module is imported.
+- Keep publication, deployment, API collection, and HALT changes outside this local candidate.
+
 ## [2.20.353] — 2026-10-17
 
 ### Added

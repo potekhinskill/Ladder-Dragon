@@ -8,6 +8,7 @@ from ladder_dragon.execution.cancel_replace import (
     atomic_cancel_replace_buy,
 )
 from ladder_dragon.execution.order_recovery import OrderJournal
+from ladder_dragon.observability.latency_trace import LatencyTrace
 
 
 def original_order():
@@ -42,9 +43,12 @@ def journal_with_original(tmp_path):
 def test_cancel_replace_commits_replacement_before_atomic_request(tmp_path):
     journal = journal_with_original(tmp_path)
     calls = []
+    ticks = iter(range(0, 20_000, 1000))
+    trace = LatencyTrace("SOLUSDT", "cancel-replace", monotonic_ns=lambda: next(ticks))
 
     def signed_request(method, path, params):
         assert journal.get(params["newClientOrderId"]).state == "PREPARED"
+        assert trace.payload()["phases_us"] == {"journal_commit": 1, "request_sent": 2}
         calls.append((method, path, params))
         return {
             "cancelResult": "SUCCESS",
@@ -66,6 +70,7 @@ def test_cancel_replace_commits_replacement_before_atomic_request(tmp_path):
         original_order(),
         Decimal("91"),
         maximum_notional=Decimal("10"),
+        latency_trace=trace,
         dependencies=CancelReplaceDependencies(
             journal=lambda: journal,
             signed_request=signed_request,
@@ -81,6 +86,9 @@ def test_cancel_replace_commits_replacement_before_atomic_request(tmp_path):
     assert calls[0][2]["cancelReplaceMode"] == "STOP_ON_FAILURE"
     assert calls[0][2]["cancelRestrictions"] == "ONLY_NEW"
     assert journal.get("OLD-BUY").state == "CANCELED"
+    assert trace.append(tmp_path / "latency.ndjson")["phases_us"] == {
+        "journal_commit": 1, "request_sent": 2, "exchange_ack": 3, "cancel_replace_ack": 4,
+    }
 
 
 def test_cancel_replace_unknown_ack_reconciles_without_resubmit(tmp_path):

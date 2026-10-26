@@ -29,11 +29,11 @@ def options():
 @pytest.fixture
 def flow(options,tmp_path,monkeypatch):
     calls=[];claim=reg.claim(12345,'SYNTHETICKEY')
-    monkeypatch.setattr(host,'EXTERNAL',tmp_path)
+    monkeypatch.setattr(host,'PRIVATE_ROOT',tmp_path)
     monkeypatch.setattr(host,'harden',lambda parent:calls.append('host'))
     monkeypatch.setattr(host,'child_setup',lambda:None)
     monkeypatch.setattr(host,'check_revision',lambda sha:calls.append('revision'))
-    monkeypatch.setattr(storage,'external_store',lambda root:tmp_path)
+    monkeypatch.setattr(storage,'internal_store',lambda root:tmp_path)
     monkeypatch.setattr(host,'dashboard_key',lambda scope:calls.append('credential') or 'SYNTHETICKEY')
     monkeypatch.setattr(reg,'hidden_uid',lambda:calls.append('uid') or 12345)
     monkeypatch.setattr(reg,'claim',lambda *a:dict(claim))

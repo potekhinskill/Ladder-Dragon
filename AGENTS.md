@@ -22,6 +22,19 @@ These rules apply to every repository change and every Raspberry Pi update.
 - Audit requests remain read-only unless implementation is also requested.
 - Report local completion separately from publication, deployment, and trading readiness.
 
+## Evidence-led maintenance
+
+- Prefer bounded changes with demonstrable benefit; rank candidates by expected value, evidence strength, risk, and implementation cost.
+- Separate observations from hypotheses; report unknown costs instead of inventing savings.
+- File counts, deleted lines, and shorter modules are not sufficient success criteria.
+- Before removal, check indirect consumers, dynamic configuration, deployment entry points, history, and operational purpose.
+- No observed calls or a constant flag does not prove redundancy; preserve emergency controls, recovery paths, and historical evidence.
+- Optimize test setup, isolation, and duplicate work without dropping assertions, safety coverage, or exact-SHA release checks.
+- Validate material instruction changes on a representative task when practical; isolate one rule, repository snapshot, and model configuration.
+- Preserve authorization boundaries during comparisons; never replay production mutations to evaluate an instruction.
+- Stop at agreed acceptance criteria; expand only after reviewing the first result, not to create more cleanup work.
+- For architecture continuation, use the [maintenance selection policy](docs/ARCHITECTURE_EVOLUTION_PLAN.md#maintenance-selection-policy).
+
 ## Git and changelog
 
 - Keep `main` as the only branch published to GitHub. Work on a local,

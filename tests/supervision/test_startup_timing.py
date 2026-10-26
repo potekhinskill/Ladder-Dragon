@@ -2,7 +2,7 @@
 
 import inspect
 
-from ladder_dragon.supervision.startup_timing import (
+from ladder_dragon.observability.startup_timing import (
     StartupSubphases,
     StartupTimeline,
     first_subphase_callback,

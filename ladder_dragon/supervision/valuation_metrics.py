@@ -7,7 +7,7 @@ import threading
 import time
 
 import requests
-from ladder_dragon.execution.read_timing import COUNTERS as READ_COUNTERS, observe_reads
+from ladder_dragon.observability.read_timing import COUNTERS as READ_COUNTERS, observe_reads
 
 
 ROUTES = ("direct", "cross_usdc", "cross_fdusd", "cross_btc", "cross_eth", "bridge", "depth", "batch")

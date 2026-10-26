@@ -4,7 +4,7 @@ import requests
 import pytest
 
 from ladder_dragon.execution import tools_market as market
-from ladder_dragon.execution.read_timing import record_read
+from ladder_dragon.observability.read_timing import record_read
 from ladder_dragon.supervision.valuation_metrics import ValuationMetrics
 
 
@@ -48,7 +48,7 @@ def test_attempt_timing(monkeypatch, first):
 @pytest.mark.parametrize("stage", ["close", "json_decode", "batch_validate"])
 @pytest.mark.parametrize("failed", [False, True])
 def test_wall_and_cpu_stages_include_failures(monkeypatch, stage, failed):
-    from ladder_dragon.execution import read_timing
+    from ladder_dragon.observability import read_timing
     clock, cpu = [0.0], [0.0]
     monkeypatch.setattr(read_timing.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(read_timing.time, "thread_time", lambda: cpu[0])
@@ -75,7 +75,7 @@ def test_wall_and_cpu_stages_include_failures(monkeypatch, stage, failed):
 
 def test_physical_timings_reach_startup_status(monkeypatch):
     from ladder_dragon.supervision import runtime
-    from ladder_dragon.supervision.startup_timing import StartupTimeline
+    from ladder_dragon.observability.startup_timing import StartupTimeline
 
     published = []
     monkeypatch.setattr(runtime, "_STARTUP_TIMELINE", StartupTimeline())

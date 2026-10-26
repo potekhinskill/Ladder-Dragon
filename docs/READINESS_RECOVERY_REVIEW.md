@@ -1,9 +1,89 @@
 # Execution readiness recovery review
 
-Latest local review date: 2026-09-28; latest Pi observations below remain dated 2026-09-27.
+Latest local and Pi review date: 2026-10-26.
 Scope: read-only Pi diagnosis, local protected operator implementation, and a readiness-plan update.
 This review authorizes no deployment, trading mutation, HALT removal, private retrieval, or paid validation batch.
 The subsequent [collection plan](HISTORICAL_SOURCE_COLLECTION_PLAN.md) defines a proposed bounded scope; it does not authorize private retrieval.
+
+## Recovery checkpoint: 2026-10-26
+
+Status: BLOCKED for historical reconstruction, execution qualification, and new strategy admission.
+This checkpoint supersedes older deployment and input-availability observations, not their evidence limitations.
+The user requests progress toward those three deliverables; this review performs no collection, private provisioning, or study launch.
+
+### Current observations
+
+Pi runs `v2.20.353`, commit `446b93673e6f1f39353c0ca4dc67da930e3b7a5b`.
+After boot, the first supervisor attempt fails the exchange-clock guard: guaranteed offset 2571 ms exceeds 1000 ms.
+One automatic restart follows; the later observation shows synchronized NTP, `RUNNING`, and a 1.2-second heartbeat age.
+All four inspected services are active; the other three report zero restarts.
+This short observation does not establish production-soak acceptance.
+The external disk has 14.61 GiB available; capacity must be checked again before activation.
+
+HALT and BUY blocking remain active.
+SOLUSDT loss-streak history remains incomplete; active CHAMPION count is zero, and no execution symbol is permitted.
+The symbol CAP map is empty; all nine published general risk-limit values are positive but not approved by this review.
+Candidate statistical approval, execution-policy binding, and operator approval remain false.
+The completed negative v23 result remains rejected, regardless of the runtime SELECTION label.
+
+The diagnostic launcher exists on Pi.
+Fixed-path metadata checks find no diagnostic manifest, signer, encrypted enrollment, export-key recovery, or diagnostic directory.
+The diagnostic output, history-input manifest, and proposed history slot are also absent.
+This check reads no file contents, credentials, account identifiers, or private evidence.
+Absence is not a reserved output slot or proof that no other historical artifact exists.
+
+### Next executable boundary
+
+The subsequent authorized offline preparation passes the deployed enrollment host and revision checks.
+However, the diagnostic directory check fails after exclusive creation.
+The external disk uses exFAT with fixed UID 1000 and mode 0755; the requested root-owned mode 0700 is not established.
+The new `history-launch-inputs-v1` directory remains empty and preserved.
+No signer, registration, manifest, recovery ciphertext, or API request is created by this attempt.
+The earlier directory-absence observation no longer applies.
+Do not retry diagnostic activation, relax its ownership checks, or change the mount permissions to bypass this failure.
+Review a protected storage arrangement before further provisioning; preserve existing archives and the empty directory.
+
+The operator subsequently approves bounded input custody on the internal SD card.
+The root-owned `/var/lib/ladder-dragon/history-launch-inputs-v1` directory is created exclusively and verified empty with mode 0700.
+Its ancestors are root-owned and remain on the system filesystem; no existing ownership or mount permissions change.
+The local candidate moves enrollment, export-key recovery, and diagnostic paths together, with no fallback or automatic migration.
+The [updated collection plan](HISTORICAL_SOURCE_COLLECTION_PLAN.md#internal-input-storage-candidate-2026-10-26) defines those paths and preserves external archive storage.
+The installed code remains `v2.20.353`; release verification and separate deployment approval remain required before using the internal paths.
+No keys, registrations, or encrypted packages are created during this storage preparation.
+
+1. Agree on signer lifetime, independent public registration, encryption-key custody, and hidden recovery access.
+2. Obtain exact approval for protected offline provisioning of the fixed inputs in the [collection plan](HISTORICAL_SOURCE_COLLECTION_PLAN.md).
+3. Verify those inputs and recovery without API calls or plaintext evidence files.
+4. Prepare the exact Stage A permit only after those prerequisites pass.
+5. Review the preserved diagnostic before preparing any separate Stage B collection authorization.
+
+Stage A retains its three-GET, 35-second request-phase ceiling and one-attempt rule.
+This checkpoint authorizes no request and supplies no executable manifest digest or execution window.
+Do not reuse a backup recovery result as proof for the new export key.
+Do not replace missing inputs with inferred account identity or an existing private key.
+
+The protected historical collection dispatcher remains unimplemented; Stage A success cannot automatically launch Stage B.
+The existing Stage B proposal ends at the exclusive cutoff `2026-09-16T00:00:00Z`, not the current date.
+Do not extend that cutoff without a separate scope review.
+Opening inventory and relevant non-trade movements remain necessary even after successful trade collection.
+
+Qualification still requires authenticated fills, complete quantities and commissions, causal market observations, and paired runtime/replay checks.
+A present-day account diagnostic cannot repair the historical market-data timing mismatch described in the [qualification checklist](BASELINE_EXECUTION_QUALIFICATION.md#qualification-closure-checklist-2026-09-24).
+New strategy evaluation remains blocked on that qualification and a reviewed, separately authorized [research protocol](BASELINE_ENTRY_RESEARCH_PROTOCOL.md).
+Do not substitute repeated paid attempts, changed acceptance thresholds, or removal of HALT for missing evidence.
+
+### Local verification
+
+The focused synthetic checks cover collection, protected diagnostics, account binding, historical exits, partial entries, and journal settlement.
+All 276 selected tests pass with dotenv loading disabled.
+These results do not establish production provenance, complete history, venue qualification, or a release-profile PASS.
+The initial read-only review changes no production files; subsequent authorized preparation creates only the two empty directories described above.
+No service, database, key, or trading control changes during either step.
+Existing local architecture changes remain separate and untouched.
+
+The internal-storage candidate passes 257 focused tests, then the complete suite: 5666 passed and two skipped in 639.49 seconds.
+Compilation, all five safety audits, secret scanning, and documentation checks pass.
+These local results do not constitute release verification, deployment, or permission to issue API requests.
 
 ## Trading-readiness work boundary: 2026-09-27
 

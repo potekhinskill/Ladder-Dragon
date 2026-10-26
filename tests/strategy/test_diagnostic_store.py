@@ -17,14 +17,13 @@ def target(tmp_path, monkeypatch):
     directory.mkdir(mode=0o700)
     device = root.stat().st_dev
     original = os.fstat
-    root_identity = Path('/').stat().st_ino
     def synthetic(fd):
         info = original(fd)
         fields = {k: getattr(info, k) for k in dir(info) if k.startswith('st_')}
         if stat.S_ISDIR(info.st_mode) and info.st_ino != directory.stat().st_ino:
             fields.update(st_uid=os.geteuid(), st_mode=info.st_mode & ~0o022)
-        if info.st_ino == root_identity:
-            fields['st_dev'] = device + 1
+        if stat.S_ISDIR(info.st_mode):
+            fields['st_dev'] = device
         return SimpleNamespace(**fields)
     monkeypatch.setattr(store, 'ROOT', root)
     monkeypatch.setattr(os, 'fstat', synthetic)
@@ -84,13 +83,19 @@ def test_partial_write_survives(target, monkeypatch):
     assert (directory / store.NAME).read_bytes() == b'encr'
 
 
-@pytest.mark.parametrize('case', ['device', 'space', 'permissions', 'mount', 'parent_link'])
+@pytest.mark.parametrize('case', ['device', 'space', 'permissions', 'foreign_filesystem', 'parent_link'])
 def test_bad_storage_blocks_before_reservation(target, monkeypatch, case):
     directory, device = target
     if case == 'device': device += 2
     elif case == 'space': monkeypatch.setattr(os, 'fstatvfs', lambda fd: SimpleNamespace(f_bavail=0, f_frsize=1))
     elif case == 'permissions': directory.chmod(0o755)
-    elif case == 'mount': monkeypatch.setattr(os.path, 'ismount', lambda p: False)
+    elif case == 'foreign_filesystem':
+        original = os.fstat
+        def foreign(fd):
+            info = original(fd)
+            if info.st_ino == store.ROOT.stat().st_ino: info.st_dev += 1
+            return info
+        monkeypatch.setattr(os, 'fstat', foreign)
     else:
         other = directory.with_name('actual')
         directory.rename(other)
@@ -133,16 +138,17 @@ def bot_mount(target, monkeypatch):
     return directory, device, bot_uid
 
 
-def test_bot_mount_private_root_directory(bot_mount):
+def test_bot_owned_internal_parent_is_rejected(bot_mount):
     directory, device, _ = bot_mount
-    with store.reserve(device) as (folder, fd):
-        assert store.store(folder, fd, b'ciphertext', device)['bytes'] == 10
-    assert (directory / store.NAME).read_bytes() == b'ciphertext'
+    with pytest.raises(ValueError):
+        with store.reserve(device): pytest.fail('non-root internal parent accepted')
+    assert not (directory / store.NAME).exists()
 
 
 @pytest.mark.parametrize('kind', ['private_directory', 'ancestor', 'unknown_mount', 'writable_mount', 'writable_private'])
-def test_mount_exception_never_expands_to_private_paths(bot_mount, monkeypatch, kind):
-    directory, device, bot_uid = bot_mount
+def test_internal_ownership_and_permissions_fail_closed(target, monkeypatch, kind):
+    directory, device = target
+    bot_uid = os.geteuid() + 10000
     original = os.fstat
     dir_ino, root_ino, ancestor_ino = directory.stat().st_ino, store.ROOT.stat().st_ino, store.ROOT.parent.stat().st_ino
     def metadata(fd):
@@ -159,9 +165,46 @@ def test_mount_exception_never_expands_to_private_paths(bot_mount, monkeypatch, 
     assert not (directory / store.NAME).exists()
 
 
+def test_fixed_input_paths_leave_only_history_external():
+    from ladder_dragon.strategy import history_input_loader as inputs, history_launcher as history
+    assert store.ROOT == Path('/var/lib/ladder-dragon')
+    assert inputs.DIAGNOSTIC == store.ROOT / store.DIRECTORY / store.NAME
+    assert inputs.RECOVERY.parent == inputs.DIAGNOSTIC.parent
+    assert inputs.ENROLLMENT == Path('/var/lib/ladder-dragon/account-enrollment-v1/enrollment.age')
+    assert history.SLOT == Path('/mnt/usb1/historical-sol-source-v1')
+
+
+def test_enrollment_internal_root_capacity_and_no_external_fallback(target, monkeypatch):
+    from ladder_dragon.strategy import enrollment_storage as enrollment
+    directory, device = target
+    monkeypatch.setattr(store, 'system_device', lambda: device)
+    monkeypatch.setattr(os, 'fstatvfs', lambda fd: SimpleNamespace(
+        f_bavail=store.RESERVE + enrollment.MAX_CIPHER, f_frsize=1))
+    assert enrollment.internal_store(store.ROOT) == store.ROOT
+    with pytest.raises(ValueError): enrollment.internal_store(Path('/mnt/usb1'))
+    monkeypatch.setattr(os, 'fstatvfs', lambda fd: SimpleNamespace(
+        f_bavail=store.RESERVE + enrollment.MAX_CIPHER - 1, f_frsize=1))
+    with pytest.raises(ValueError): enrollment.internal_store(store.ROOT)
+    assert not (directory / store.NAME).exists()
+
+
+def test_ancestor_replacement_after_reservation_is_rejected(target, monkeypatch):
+    directory, device = target
+    with store.reserve(device) as (folder, fd):
+        original = os.fstat
+        ancestor = store.ROOT.parent.stat().st_ino
+        def changed(fd):
+            info = original(fd)
+            if info.st_ino == ancestor: info.st_mode |= 0o020
+            return info
+        monkeypatch.setattr(os, 'fstat', changed)
+        with pytest.raises(ValueError): store.store(folder, fd, b'ciphertext', device)
+    assert (directory / store.NAME).read_bytes() == b''
+
+
 @pytest.mark.parametrize('kind', ['replace', 'symlink', 'rename'])
-def test_bot_parent_directory_substitution_fails_closed(bot_mount, kind):
-    directory, device, _ = bot_mount
+def test_internal_directory_substitution_fails_closed(target, kind):
+    directory, device = target
     retained = directory.with_name('retained')
     with store.reserve(device) as (folder, fd):
         directory.rename(retained)
@@ -171,8 +214,8 @@ def test_bot_parent_directory_substitution_fails_closed(bot_mount, kind):
     assert (retained / store.NAME).read_bytes() == b''
 
 
-def test_directory_swap_during_write_cannot_report_success(bot_mount, monkeypatch):
-    directory, device, _ = bot_mount
+def test_directory_swap_during_write_cannot_report_success(target, monkeypatch):
+    directory, device = target
     original = os.write
     retained = directory.with_name('retained')
     def swapped(fd, data):

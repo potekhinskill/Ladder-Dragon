@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from ladder_dragon.execution.latency_trace import LatencyTrace
+from ladder_dragon.observability.latency_trace import LatencyTrace
 
 
 def test_latency_trace_records_only_allowlisted_sanitized_phases(tmp_path):

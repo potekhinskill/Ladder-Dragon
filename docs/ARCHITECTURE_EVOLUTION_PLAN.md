@@ -16,6 +16,9 @@ Microservices, a new framework, and a wholesale `src/` migration are outside thi
 
 ## Recommended order
 
+Apply the maintenance selection policy before choosing the next extraction.
+The sequence below records dependencies, not an obligation to move every file regardless of benefit.
+
 1. Record owners, dependencies, entry points, and existing exceptions.
 2. Add architecture checks in observation mode and block new violations.
 3. Complete the existing dashboard and command extractions.
@@ -32,6 +35,46 @@ An explicit user-requested review checkpoint still requires the user's response.
 One phase can require several atomic commits; it does not require a separate Pi restart for every extraction.
 Agree on the current stage and its completion checks before implementation; continue related work without requesting approval for each file.
 Use the [component index](AGENT_WORKFLOW.md) for context and [project rules](../AGENTS.md) for verification and authorization.
+
+### Maintenance selection policy
+
+Effective 2026-10-20; applies to future continuation without rewriting historical implementation records.
+This policy adapts [Maintaining software with the GPT-6 family](https://developers.openai.com/blog/maintaining-software-with-the-gpt-6-family).
+The article motivates the workflow; its savings and model comparisons are not project measurements.
+
+Select one bounded outcome before moving files.
+Record the following in the existing implementation log or task summary, without creating another inventory or recurring report:
+
+- Problem and evidence: concrete ownership ambiguity, repeated defects, costly checks, or an observed operational burden.
+- Scope: affected owners, consumers, dependencies, and explicit exclusions.
+- Benefit: a measurable cost reduction or a verifiable structural improvement, with its current baseline.
+- Risk: safety invariants, dynamic consumers, historical compatibility, and recovery requirements.
+- Acceptance: behavior checks, required harness enforcement, and a condition for stopping or rejecting the proposed change.
+
+Rank candidates by benefit, evidence strength, risk, and effort.
+For performance claims, distinguish measured CPU, latency, I/O, and CI duration from estimates.
+For ownership work, identify the duplicate authority, forbidden dependency, or concrete coupling that the change removes.
+A new interface or wrapper is justified only when its benefit exceeds the added complexity.
+Defer cosmetic rearrangement without a demonstrated problem; record the reason instead of inventing work.
+If a requested batch exceeds justified candidates, report the shortfall rather than filling it with arbitrary file moves.
+Do not silently replace an explicit user scope; explain any proposed change to that scope.
+
+Before deleting code or retiring an experiment, trace aliases, wrappers, schemas, dynamic names, deployment callers, and external consumers where applicable.
+Use existing telemetry and configuration evidence only within authorized access; missing evidence leaves the candidate unverified.
+Distinguish inactive experiments from permanent controls and emergency recovery paths.
+Retiring an experiment does not authorize deletion of its source evidence, identifiers, or replay compatibility.
+
+Start with one representative extraction, review its result, then continue related work within the agreed boundary.
+Technical review remains the implementing agent's responsibility unless the user requires an independent checkpoint.
+Do not require a new user response for each file or expand the task into an unbounded repository cleanup.
+Keep relocations separate from functional fixes and performance changes so each claim has attributable evidence.
+Improve test isolation and repeated setup before considering CI changes; preserve the required checks in AGENTS.md.
+
+At completion, compare the result with the baseline and record retained exceptions and actual verification results.
+Do not claim speed gains from file movement or completeness from a lack of static references.
+Report slice acceptance separately from phase closure, release status, deployment status, and trading readiness.
+Use an explicit stable denominator for percentages; do not equate moved files with whole-program completion.
+Future harness rules must protect demonstrated ownership or dependency invariants, not force cosmetic structure or disable financial checks.
 
 ## 1. Measured baseline
 
@@ -508,6 +551,7 @@ Apply this checklist to the agreed change set, not after each intermediate file 
 Use affected tests during iteration; complete every applicable check before declaring the change set complete.
 
 - [ ] Record the exact source and destination owners before editing.
+- [ ] Record the demonstrated problem, baseline, expected benefit, exclusions, and bounded acceptance criteria.
 - [ ] Search imports, dynamic loaders, string paths, systemd references, tests, audits, schemas, and package-data declarations.
 - [ ] Preserve public interfaces and separate intentional behavior changes from movement.
 - [ ] Move the implementation and all internal callers together.
@@ -518,6 +562,7 @@ Use affected tests during iteration; complete every applicable check before decl
 - [ ] Lower migrated monolith budgets and remove completed exceptions.
 - [ ] Run architecture mutation tests, affected component tests, all five safety audits, and the full suite.
 - [ ] Run compileall, Technical English, package smoke checks, and documentation contracts.
+- [ ] Compare the accepted result with the baseline; separate measured benefit, structural evidence, and unresolved hypotheses.
 - [ ] For implementation releases, update the dated changelog and version according to repository rules.
 - [ ] Require release continuity, signed artifacts, and successful CI before authorized deployment.
 - [ ] After authorized deployment, verify exact SHA, assets, services, heartbeat, reconciliation, API protection, and preserved HALT.
@@ -549,6 +594,219 @@ After publication, use the reviewed deployment recovery procedure or a new signe
 Do not hand-edit production databases or restore old schemas to make a source rollback appear compatible.
 
 ## 10. Implementation record
+
+### Transport diagnostic ownership P3 slice — 2026-10-21
+
+Review conclusion: separate safe transport diagnostics from bounded response reading before considering a broader transport move.
+`market_http_body.py` mixes byte limits and decompression with exception classification and diagnostic formatting.
+The selected boundary gives diagnostics an independent owner without moving shared public and signed response handling into a public-only package.
+The accounting-model candidate is deferred because current replay identity includes `trade_accounting.py`; its compatibility impact needs separate review.
+This slice uses the existing observability owner and scoped P1 controls.
+
+Baseline: two diagnostic functions and their endpoint vocabulary reside in `execution/market_http_body.py`.
+The market adapter imports these diagnostics alongside the response reader.
+The existing diagnostic functions match HEAD `446b93673e6f1f39353c0ca4dc67da930e3b7a5b`; the consumer fingerprint includes prior reviewed imports.
+Scope excludes retries, timeout budgets, response limits, decompression, signed-request order, accounting, persistent state, and deployment.
+
+The unchanged functions and endpoint vocabulary now reside in `observability/transport_errors.py`, without a legacy re-export.
+The exact caught exception classes also have one explicit binding there: `requests.RequestException` and `urllib3.exceptions.HTTPError`.
+The adapter uses that binding without widening its exception handler.
+The reader retains its exception type, remaining-budget function, and bounded body implementation unchanged.
+Syntax regressions cover all five retained or relocated definitions and the complete adapter after reversing only reviewed bindings.
+Existing real-adapter tests preserve retries, delays, response cleanup, safe traceback output, and stable risk-alert identity.
+No additional loader, service, or source-hash reference to these diagnostic functions was found; unknown external consumers remain unverified.
+
+The required `architecture_transport_errors` check runs in local and release profiles.
+It rejects missing sources, forwarding stubs, reverse dependencies, legacy definitions, incorrect exception classes, and replaced consumer imports or bindings.
+These structural checks complement behavior tests; arbitrary dynamic Python behavior remains outside their proof.
+The installed-package test exercises safe diagnostics and actual adapter bindings with networking prohibited.
+
+The first size check rejected one additional import line in the legacy adapter.
+The correction completes ownership of the existing exception-class set rather than raising the budget or compressing code.
+The adapter remains 612 lines; cycle and size checks pass against HEAD without new exceptions.
+Two early full-suite attempts were stopped during local corrections and are not completion evidence.
+Final verification passes: 5663 tests passed and two skipped because of interpreter and operating-system constraints.
+The focused suite passes 223 tests, including 31 new extraction and mutation regressions.
+Compilation, five safety audits, secret scanning, Semgrep, scoped architecture checks, and installed-package checks pass.
+Final documentation checks follow unchanged-code verification; diagnostic HEAD comparisons are not signed release evidence.
+
+All four slice criteria are satisfied: canonical ownership, behavior parity, mandatory enforcement, and complete verification with documentation.
+This slice is 4/4, or 100%, complete locally.
+Whole-phase closure remains 0/8, or 0%; this does not measure work completed within partially implemented phases.
+No validated effort-weighted denominator exists for an overall work-completion percentage.
+The candidate remains 2.20.354; no startup acceleration is claimed.
+Publication, Pi changes, API collection, and HALT changes remain outside this scope.
+
+### Public ticker validation P3 slice — 2026-10-21
+
+Review conclusion: separate public ticker validation from the mixed execution market adapter.
+The selected component has no network operations, credentials, signed requests, or persistent state.
+Its only project dependency is the canonical risk asset policy.
+This slice uses the implemented scoped P1 controls; it does not close P3.
+
+The HTTP-body candidate is deferred because both public and signed consumers use it.
+Moving that shared transport helper into a public-only owner would misrepresent its scope.
+Accounting extraction also has a wider financial surface than this bounded relocation.
+
+Baseline: `execution/market_tickers.py` owns four functions; `execution/tools_market.py` imports its valuation validator.
+Two supervision test modules also import the validator directly.
+The owner matches HEAD `446b93673e6f1f39353c0ca4dc67da930e3b7a5b`; the consumer fingerprint includes the earlier read-timing relocation.
+Scope excludes transport behavior, concurrency, quote priorities, financial formulas, authenticated operations, and deployment.
+The acceptance boundary is unchanged validation with a separately enforceable public owner and migrated callers.
+
+The unchanged implementation now resides in `market_data/tickers.py`; the package initializer has no executable imports.
+The execution adapter and affected tests use that owner; the legacy module is removed without a re-export.
+Complete syntax comparisons cover the owner and adapter after normalizing only reviewed import changes.
+The earlier read-timing fingerprint retains its original value through explicit normalization of the ticker import.
+Canonical risk asset groups remain in `risk/asset_policy.py`; no policy values are copied.
+Existing batch tests exercise exact wire prices, current-snapshot precedence, alternate routes, duplicate rows, and fail-closed invalid responses.
+Searches found no additional service, dynamic-loader, configuration, or source-hash reference to the old module.
+Unknown external consumers remain outside this review.
+
+The required `architecture_market_tickers` check runs in local and release profiles.
+It checks concrete implementation ownership, canonical adapter imports, and the narrow static dependency boundary.
+The check also rejects imports added to the package initializer or canonical asset-policy dependency.
+Mutation tests reject missing sources, syntax errors, forwarding stubs, reverse imports, legacy ownership, and replaced consumer bindings.
+Isolated import tests prohibit execution, supervision, requests, and dotenv while exercising the public parser.
+These checks complement behavior tests; arbitrary dynamic Python capability remains outside the structural proof.
+
+Verification: 138 focused tests passed, including 31 new extraction and mutation regressions.
+The complete suite passed: 5632 tests passed and two skipped because of interpreter and operating-system constraints.
+Compilation, five safety audits, secret scanning, Semgrep, and scoped architecture checks passed.
+An isolated installed-wheel check verified exact values, alternate observations, and the real adapter binding with networking prohibited.
+Diagnostic comparison against HEAD found no new static cycles or size violations; this is not signed release evidence.
+Final documentation checks follow unchanged-code verification.
+
+All four slice criteria are satisfied: canonical ownership, behavior parity, mandatory enforcement, and complete verification with documentation.
+This slice is 4/4, or 100%, complete locally.
+Whole-phase closure remains 0/8, or 0%; this does not measure completed work within partially implemented phases.
+No validated effort-weighted denominator exists for an overall work-completion percentage.
+No startup acceleration is claimed; the unpublished candidate remains 2.20.354.
+Publication, Pi changes, API collection, and HALT changes remain outside this scope.
+
+### Shared latency trace P3 slice — 2026-10-21
+
+Review conclusion: remove the supervisor dependency on execution for the shared latency trace implementation.
+This continuation uses the existing observability owner and scoped P1 controls.
+The alternative accounting and transport extractions have wider financial or resource-lifetime surfaces.
+The selected move has direct dependency evidence and does not change trading behavior.
+
+Baseline: `execution/latency_trace.py` owns one class and four methods, imported by supervisor runtime and worker runtime.
+Worker buy and event-loop services resolve the class through the existing runtime interface.
+Order and cancel-replace services receive the trace as an explicit object.
+The implementation matches HEAD `446b93673e6f1f39353c0ca4dc67da930e3b7a5b`; consumer fingerprints capture the candidate with the earlier startup-timing relocation.
+Scope excludes financial calculations, HTTP requests, authority order, log rotation, deployment, and production state.
+No new persistent record or retention policy is introduced.
+
+The unchanged implementation now resides in `observability/latency_trace.py`; both direct consumers import that owner.
+The former module is removed without a re-export.
+Complete syntax comparisons cover the owner and both consumers, normalizing only the reviewed import.
+The historical supervisor fingerprint remains unchanged after explicit import normalization.
+Existing indirect consumers retain the runtime binding and supplied trace object.
+Searches found no additional service, configuration, dynamic-loader, or source-hash dependency on the former module.
+Unknown external consumers remain outside this source review.
+
+The required `architecture_latency_trace` check runs in local and release profiles.
+It checks concrete methods, standard-library dependencies, canonical imports, and absence of legacy ownership.
+Mutation tests reject missing sources, invalid syntax, forwarding stubs, reverse imports, replaced imports, and replaced consumer bindings.
+These structural checks complement behavior tests; they do not prove arbitrary dynamic Python behavior.
+Synthetic persistence tests verify detached payloads, append behavior, file permissions, error propagation, and descriptor closure after write failure.
+The actual cancel-replace workflow preserves journal-before-request timing and response-before-ACK timing with a synthetic transport.
+
+Verification: 187 focused tests passed, including 29 new extraction and mutation regressions.
+The complete suite passed: 5601 tests passed and two skipped because of interpreter and operating-system constraints.
+Compilation, five safety audits, secret scanning, Semgrep, and scoped architecture checks passed.
+An isolated installed-wheel test exercised both consumer bindings and synthetic persistence with networking prohibited.
+Diagnostic comparison against HEAD found no new static cycles or size violations; this is not signed release evidence.
+Final documentation checks follow unchanged-code verification.
+
+Slice acceptance uses four criteria: canonical ownership, behavior parity, required regression enforcement, and complete verification with documentation.
+All four criteria are satisfied: this slice is 4/4, or 100%, complete locally.
+Whole-phase closure remains 0/8, or 0%; this measures fully accepted phases, not completed work within them.
+The plan has no validated effort-weighted denominator, so no overall work-completion percentage is inferred.
+Broader P3 acceptance remains incomplete; no startup acceleration is claimed.
+The candidate remains 2.20.354; publication, Pi changes, API collection, and HALT changes remain outside this scope.
+
+### Shared read timing P3 slice — 2026-10-21
+
+Review conclusion: remove two supervisor-to-execution dependencies used only for shared read telemetry.
+The startup timing slice establishes the shared observability owner; this continuation uses the implemented scoped P1 controls.
+Accounting extraction has a wider financial surface; moving market transport would also affect resource ownership.
+This bounded telemetry move has direct dependency evidence and lower behavior risk.
+
+Baseline: commit `446b93673e6f1f39353c0ca4dc67da930e3b7a5b` stores three read timing functions and fifteen fixed counters in `execution/read_timing.py`.
+Its consumers are `execution/tools_market.py`, `supervision/valuation_metrics.py`, and `supervision/valuation_reads.py`.
+Scope excludes HTTP behavior, concurrency, retries, financial calculations, signed-request order, persistent state, and deployment.
+The principal risk is splitting the context-local observer between producers and consumers.
+Acceptance requires unchanged syntax, one shared observer, context restoration, installed imports, and mandatory ownership enforcement.
+
+The unchanged implementation now resides in `observability/read_timing.py`; all three consumers import that owner.
+The old module is removed without a compatibility wrapper.
+Baseline syntax comparisons cover the complete implementation and all three consumers, normalizing only the reviewed import paths.
+Nested observers restore their previous context after exceptions; simultaneous real consumer calls retain separate counters.
+Tests also retain fixed numeric telemetry without request identity, payloads, or persistent records.
+Searches found no additional service, configuration, dynamic-loader, or replay-source-hash reference to the old module.
+Unknown external consumers remain outside this source review.
+
+The required `architecture_read_timing` check runs in local and release profiles.
+It checks concrete implementation ownership, the single context declaration, standard-library dependencies, and canonical consumer imports.
+Negative tests reject missing sources, syntax errors, forwarding stubs, reverse imports, duplicate contexts, legacy ownership, and replaced imports or bindings.
+These structural checks complement behavior tests; they do not prove arbitrary dynamic Python behavior.
+
+Verification: 232 focused tests passed, including 32 new extraction, context, and mutation regressions.
+The complete suite passed: 5572 tests passed and two skipped.
+Compilation, five safety audits, secret scanning, Semgrep, and scoped architecture checks passed.
+An isolated installed-wheel check exercised the shared producer and metrics consumer with network access prohibited.
+Diagnostic comparison against HEAD found no new static cycles or size violations; this is not signed release evidence.
+Final documentation checks follow unchanged-code verification.
+
+Acceptance is complete for this slice: two telemetry-only cross-layer dependencies are removed without changing read behavior.
+No startup acceleration or agent-productivity improvement is claimed.
+The unpublished candidate remains 2.20.354; publication, Raspberry Pi updates, API collection, and HALT changes remain outside this scope.
+Broader P3 acceptance remains incomplete; strict whole-phase closure remains 0/8.
+Further continuation requires a new demonstrated benefit rather than automatic folder rearrangement.
+
+### Shared startup timing P3 slice — 2026-10-20
+
+Review conclusion: remove the demonstrated worker-to-supervisor timing dependency before further presentation decomposition.
+P3 depends on the implemented scoped P1 controls, not completion of P2.
+This review approves only shared startup timing; broader phase acceptance remains open.
+
+Baseline: commit `446b93673e6f1f39353c0ca4dc67da930e3b7a5b` stores five concrete timing definitions in `supervision/startup_timing.py`.
+Worker lifecycle and supervisor runtime import that module; five test modules also reference it.
+The selected benefit is removal of that cross-layer dependency, not fewer files or faster trading.
+Scope excludes accounting, market reads, notifications, financial decisions, database schemas, deployment, and production state.
+
+The unchanged implementation now resides in `observability/startup_timing.py`.
+Both production consumers and all five test imports use the new owner.
+The legacy module is removed without a re-export.
+The complete timing AST matches the baseline; consumer ASTs differ only in their timing import paths.
+The historical supervisor syntax test normalizes only the reviewed import; its original digest remains unchanged.
+The new mandatory ownership check independently rejects the old import.
+Existing clocks, callback lifetime, retry aggregation, status fields, and worker resource bindings remain unchanged.
+Searches found no additional loader, service, configuration, or replay-source-hash reference to the old module.
+This source review does not prove the absence of unknown external consumers.
+
+The required `architecture_startup_timing` check runs in local and release profiles.
+It checks concrete definitions, standard-library imports, canonical consumer imports, and worker timing bindings.
+Negative tests cover missing sources, syntax errors, forwarding stubs, reverse imports, legacy ownership, replaced imports, and replaced bindings.
+These structural checks complement behavior tests; they do not prove arbitrary dynamic Python behavior.
+
+Focused verification: 140 tests passed, including 28 new extraction and mutation regressions.
+Five safety audits, compilation, architecture ownership checks, and Semgrep passed.
+An isolated wheel smoke check exercised worker logging without network access or any supervision import.
+Diagnostic comparison against HEAD found no new static cycles or size violations; this is not signed release evidence.
+The first complete suite found one outdated whole-module syntax comparison; the focused timing tests had missed it.
+After correcting that comparison, the complete suite passed: 5540 tests passed and two skipped.
+Compilation and all five safety audits passed again on the corrected candidate.
+Final documentation checks follow unchanged-code verification.
+
+Acceptance stops after unchanged behavior, removed coupling, installed imports, and mandatory regression enforcement pass.
+This bounded slice meets those criteria; broader P3 acceptance remains incomplete.
+No startup acceleration or agent-productivity improvement is claimed.
+The unpublished candidate is 2.20.354; this slice does not authorize publication, Raspberry Pi updates, API collection, or HALT changes.
+No whole phase closes here; strict whole-phase closure remains 0/8.
+Next selection requires a new demonstrated benefit; accounting and public market ownership remain separate candidates.
 
 ### Twenty-eighth five-step P2 slice — 2026-09-27
 

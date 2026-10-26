@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 from ladder_dragon.risk.asset_policy import STABLE_VALUATION_ASSETS
-from ladder_dragon.execution.read_timing import record_read
+from ladder_dragon.observability.read_timing import record_read
 
 
 class ValuationReads:

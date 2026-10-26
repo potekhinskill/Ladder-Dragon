@@ -1,5 +1,33 @@
 # Engineering decisions
 
+### 2026-10-26 — Separate private input custody from external archives
+
+- **Context:** fixed exFAT ownership cannot satisfy root-owned mode 0700 for protected diagnostic inputs.
+- **Decision:** use bounded system-filesystem custody for enrollment, export-key recovery, and diagnostic ciphertext; keep historical bundles and backups external.
+- **Guards:** require trusted ancestors, system-device identity, exact private modes, exclusive creation, and preservation of failed reservations.
+- **Separation:** retain the external device approval for history preparation; never substitute it for the internal diagnostic device.
+- **Evidence:** 257 focused tests and 5666 complete-suite tests pass, with two skips; compilation, five safety audits, and secret scanning pass.
+- **Limits:** the empty private directory exists on Pi, but changed code remains local; no keys, private retrieval, or trading activation occurs.
+
+### 2026-10-20 — Keep shared startup telemetry outside orchestration
+
+- **Context:** worker lifecycle imported a shared timing implementation from supervision.
+- **Decision:** move the unchanged implementation to observability and update both consumers together, without a legacy re-export.
+- **Guards:** enforce concrete ownership, canonical imports, standard-library dependencies, and worker bindings through required local and release checks.
+- **Evidence:** syntax parity, synthetic clocks, actual consumer bindings, and isolated wheel imports validate this bounded relocation.
+- **Limits:** structural ownership improves; startup latency, trading readiness, and whole-phase completion remain unproved.
+- **Reuse:** separate shared telemetry from orchestration without changing clock lifetime, callback bindings, or failure semantics.
+
+### 2026-10-20 — Select architecture work by demonstrated benefit
+
+- **Context:** repeated fixed-size extraction batches can reward file movement without establishing useful phase progress.
+- **Decision:** require a demonstrated problem, baseline, bounded outcome, and acceptance evidence before selecting further architecture work.
+- **Guards:** preserve emergency paths, indirect consumers, historical evidence, and comprehensive verification; no observed calls does not justify deletion.
+- **Structure:** keep general maintenance rules in AGENTS.md and detailed selection criteria in the plan; route the architecture skill to that policy.
+- **Evidence:** twelve guidance and documentation tests pass; skill validation and Technical English checks pass.
+- **Limits:** these checks validate instruction structure and existing contracts, not measured agent productivity or a completed architecture phase.
+- **Reuse:** evaluate material instruction changes on comparable isolated tasks; never replay production mutations to measure agent behavior.
+
 ### 2026-10-17 — Separate mount ownership from private output ownership
 
 - **Context:** the production external mount belongs to `bot`, while hardened diagnostic output requires root ownership.

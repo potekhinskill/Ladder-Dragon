@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from ladder_dragon.execution.market_tickers import valuation_prices
+from ladder_dragon.market_data.tickers import valuation_prices
 
 
 @pytest.mark.parametrize("invalid", [Decimal("0"), Decimal("-1"), Decimal("NaN"), Decimal("Infinity"), "75", None, True])

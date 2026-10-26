@@ -18,9 +18,9 @@ from ladder_dragon.strategy import enrollment_registration as registration
 from ladder_dragon.strategy import history_input_contract as contract
 
 MANIFEST = Path('/root/.config/ladder-dragon/history-launch-inputs.json')
-ENROLLMENT = Path('/mnt/usb1/account-enrollment-v1/enrollment.age')
-RECOVERY = Path('/mnt/usb1/history-launch-inputs-v1/export-key.age')
-DIAGNOSTIC = Path('/mnt/usb1/history-launch-inputs-v1/diagnostic.fernet')
+ENROLLMENT = Path('/var/lib/ladder-dragon/account-enrollment-v1/enrollment.age')
+RECOVERY = Path('/var/lib/ladder-dragon/history-launch-inputs-v1/export-key.age')
+DIAGNOSTIC = Path('/var/lib/ladder-dragon/history-launch-inputs-v1/diagnostic.fernet')
 STAGES = {'manifest', 'enrollment', 'key_recovery', 'credential', 'diagnostic', 'inputs_verified'}
 
 

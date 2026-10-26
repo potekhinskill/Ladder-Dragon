@@ -108,7 +108,7 @@ def test_failed_live_preflight_publishes_elapsed_and_success_false(
     tmp_path, monkeypatch
 ):
     from ladder_dragon.execution.auth_resilience import AuthResilienceState
-    from ladder_dragon.supervision.startup_timing import StartupTimeline
+    from ladder_dragon.observability.startup_timing import StartupTimeline
 
     published = []
     monkeypatch.setattr(

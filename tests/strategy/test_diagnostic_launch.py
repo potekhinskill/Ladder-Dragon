@@ -41,9 +41,24 @@ def private(setup, enrollment, tmp_path, monkeypatch):
     folder = tmp_path / 'destination'; folder.mkdir(mode=0o700)
     monkeypatch.setattr(worker.storage, 'ROOT', folder.parent)
     monkeypatch.setattr(worker.storage, 'DIRECTORY', folder.name)
+    # Simulate root-owned internal ancestors on the synthetic test filesystem.
+    import stat
+    from types import SimpleNamespace
+    original_fstat = os.fstat
+    internal_device = folder.stat().st_dev
+    def metadata(fd):
+        info = original_fstat(fd)
+        fields = {k: getattr(info, k) for k in dir(info) if k.startswith('st_')}
+        if stat.S_ISDIR(info.st_mode):
+            fields.update(st_uid=os.geteuid(), st_mode=info.st_mode & ~0o022,
+                          st_dev=internal_device)
+        return SimpleNamespace(**fields)
+    monkeypatch.setattr(os, 'fstat', metadata)
+    monkeypatch.setattr(worker.storage, 'system_device', lambda: internal_device)
     monkeypatch.setattr(os.path, 'ismount', lambda path: path == folder.parent)
     @contextmanager
     def reserve(device):
+        assert device == internal_device
         directory = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
         fd = None
         try:
@@ -54,7 +69,7 @@ def private(setup, enrollment, tmp_path, monkeypatch):
             os.close(directory)
     monkeypatch.setattr(worker.storage, 'reserve', reserve)
     monkeypatch.setattr(launch.preparation, 'prepare', lambda *args: launch.preparation.result('complete'))
-    options = dict(confirmed=True, expected_code_sha='a'*40, expected_device=folder.stat().st_dev,
+    options = dict(confirmed=True, expected_code_sha='a'*40, expected_device=internal_device + 1000,
                    manifest_sha256=contract.digest(raw_manifest))
     return options, data, folder / worker.storage.NAME, pins
 

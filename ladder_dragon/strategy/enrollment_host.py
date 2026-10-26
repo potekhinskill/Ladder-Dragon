@@ -17,6 +17,7 @@ import threading
 
 PROJECT = Path('/home/bot/apps/binance_bot')
 EXTERNAL = Path('/mnt/usb1')
+PRIVATE_ROOT = Path('/var/lib/ladder-dragon')
 CREDENTIAL = PROJECT / '.env.dashboard'
 
 

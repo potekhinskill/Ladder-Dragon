@@ -8,7 +8,7 @@ import pytest
 
 from ladder_dragon.execution.auth_resilience import AuthResilienceState
 from ladder_dragon.supervision import runtime
-from ladder_dragon.supervision.startup_timing import StartupSubphases, StartupTimeline
+from ladder_dragon.observability.startup_timing import StartupSubphases, StartupTimeline
 
 
 @pytest.fixture

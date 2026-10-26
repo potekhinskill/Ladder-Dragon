@@ -11,7 +11,7 @@ from ladder_dragon.execution.worker.event_loop import WorkerLoopContext, run_eve
 from ladder_dragon.execution.worker.lock_guard import release_lock_on_error
 from ladder_dragon.execution.worker.champion_preflight import champion_entry_veto_rule, champion_ladder, require_live_champion
 from ladder_dragon.execution.worker.authority_attestation import require_worker_authority_binding
-from ladder_dragon.supervision.startup_timing import StartupTimeline, log_worker_startup
+from ladder_dragon.observability.startup_timing import StartupTimeline, log_worker_startup
 class WorkerRuntimeState:
     """Expose live worker module state without snapshotting mutable globals."""
     def __init__(self, namespace: MutableMapping[str, Any]) -> None:

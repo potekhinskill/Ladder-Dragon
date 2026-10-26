@@ -19,6 +19,8 @@
     "ladder_dragon/execution/protection": "execution.protection",
     "ladder_dragon/execution/worker": "execution.worker",
     "ladder_dragon/market_analysis": "market_analysis",
+    "ladder_dragon/market_data": "market_data",
+    "ladder_dragon/observability": "observability",
     "ladder_dragon/persistence": "persistence",
     "ladder_dragon/risk": "risk",
     "ladder_dragon/strategy": "strategy",

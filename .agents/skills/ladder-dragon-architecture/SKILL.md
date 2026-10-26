@@ -16,6 +16,9 @@ Compare recorded progress with the actual checkout.
 Read the complete plan when reviewing overall architecture or changing cross-phase boundaries.
 Expand context when the current phase depends on unresolved contracts elsewhere.
 For ambiguous continuation, identify the next bounded slice within the reviewed phase.
+Apply the [maintenance selection policy](../../../docs/ARCHITECTURE_EVOLUTION_PLAN.md#maintenance-selection-policy) before selecting that slice.
+Name the demonstrated problem, baseline, expected benefit, and stopping condition; defer unjustified cosmetic moves.
+Treat requested step counts as scope bounds, not permission to invent extractions or inflate completion percentages.
 Perform technical review under the [plan's review rules](../../../docs/ARCHITECTURE_EVOLUTION_PLAN.md) before starting a new phase.
 Use the [component index](../../../docs/AGENT_WORKFLOW.md#task-routing-and-learning-index) for affected contracts, not as a mandatory reading package.
 
@@ -33,4 +36,5 @@ Use the [component index](../../../docs/AGENT_WORKFLOW.md#task-routing-and-learn
 
 Update the plan only after claimed behavior and harness enforcement are verified.
 Record completed scope, actual check results, and remaining exceptions.
+Compare the accepted outcome with its baseline before selecting further work.
 Do not claim startup acceleration from file movement without comparable measurements.

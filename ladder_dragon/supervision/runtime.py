@@ -76,7 +76,7 @@ from ladder_dragon.supervision.order_cleanup import (
     smart_cleanup_orders as _smart_cleanup_orders,
     startup_cleanup_orders as _startup_cleanup_orders,
 )
-from ladder_dragon.supervision.startup_timing import (
+from ladder_dragon.observability.startup_timing import (
     StartupSubphases, StartupTimeline, first_subphase_callback,
     record_failed_startup_attempt,
 )
@@ -146,7 +146,7 @@ from ladder_dragon.execution.cancel_replace import (
 )
 from ladder_dragon.supervision.journal_status import read_journal_status
 from ladder_dragon.execution.executor_recovery import classify_oco_legs
-from ladder_dragon.execution.latency_trace import LatencyTrace
+from ladder_dragon.observability.latency_trace import LatencyTrace
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
     auth_failure_retry_max_sec,

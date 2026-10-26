@@ -11,6 +11,7 @@ from urllib3.response import HTTPResponse
 
 from ladder_dragon.execution import market_http_body as body
 from ladder_dragon.execution import tools_market as market
+from ladder_dragon.observability import transport_errors as diagnostics
 
 
 def response(data, status=200, encoding=None):
@@ -203,12 +204,12 @@ def test_nested_dns_cause_is_safe_and_bounded():
     from urllib3.exceptions import MaxRetryError, NameResolutionError
     inner = NameResolutionError("PRIVATE_HOST", None, socket.gaierror(-2, "PRIVATE"))
     error = requests.ConnectionError(MaxRetryError(None, "PRIVATE_URL", inner))
-    summary = str(body.transport_error(error, "https://example.invalid/api/v3/time", 3, 1, False))
+    summary = str(diagnostics.transport_error(error, "https://example.invalid/api/v3/time", 3, 1, False))
     assert "cause=dns" in summary
     assert "PRIVATE" not in summary
     cycle = requests.ConnectionError("PRIVATE")
     cycle.__cause__ = cycle
-    assert body.transport_cause(cycle) is None
+    assert diagnostics.transport_cause(cycle) is None
 
 
 @pytest.mark.parametrize("inner,cause", [
@@ -220,7 +221,7 @@ def test_nested_dns_cause_is_safe_and_bounded():
 def test_nested_transport_categories(inner, cause):
     error = requests.ConnectionError("PRIVATE")
     error.__cause__ = inner
-    assert body.transport_cause(error) == cause
+    assert diagnostics.transport_cause(error) == cause
 
 
 @pytest.mark.parametrize("url", [
@@ -230,7 +231,7 @@ def test_nested_transport_categories(inner, cause):
     "https://[PRIVATE_HOST/api/v3/time",
 ])
 def test_unknown_endpoint_is_never_echoed(url):
-    error = body.transport_error(requests.Timeout("PRIVATE_BODY"), url, 3, 1.5, False)
+    error = diagnostics.transport_error(requests.Timeout("PRIVATE_BODY"), url, 3, 1.5, False)
     assert "endpoint=unknown" in str(error)
     assert "PRIVATE_" not in str(error)
 

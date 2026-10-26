@@ -3,7 +3,7 @@
 from decimal import Decimal
 import pytest
 
-from ladder_dragon.execution.market_tickers import valuation_prices
+from ladder_dragon.market_data.tickers import valuation_prices
 from ladder_dragon.supervision.valuation_reads import ValuationReads
 
 
