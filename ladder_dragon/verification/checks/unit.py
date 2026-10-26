@@ -100,6 +100,11 @@ def local_checks(context: HarnessContext) -> list[CheckSpec]:
             timeout_sec=300,
         ),
         CheckSpec(
+            name="semgrep_dependency_compatibility",
+            argv=(python, "-m", "bin.semgrep_scan", "--compatibility-test"),
+            timeout_sec=120,
+        ),
+        CheckSpec(
             name="semgrep_static_analysis",
             argv=(python, "-m", "bin.semgrep_scan"),
             timeout_sec=900,

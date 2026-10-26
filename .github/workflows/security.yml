@@ -34,8 +34,7 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements/ci.lock
           python -m pip install --no-deps --no-build-isolation -e .
-          python -m venv .semgrep-venv
-          .semgrep-venv/bin/python -m pip install --require-hashes -r requirements/semgrep.lock
+          python -m bin.install_semgrep
       - name: Unified local verification harness
         run: >-
           python -m bin.verification_harness
@@ -67,6 +66,11 @@ jobs:
           python -m pip install --require-hashes -r requirements/audit.lock
       - name: Dependency audit
         run: python -m pip_audit --skip-editable
+      - name: Isolated analyzer and Raspberry Pi dependency audits
+        run: |
+          python -m pip_audit --disable-pip --no-deps -r requirements/raspberry.lock
+          python -m pip_audit --disable-pip --no-deps -r requirements/semgrep.lock
+          python -m pip_audit --disable-pip --no-deps -r requirements/semgrep-upstream-audit.in
       - name: Tracked secret scan
         run: python deploy/scan_tracked_secrets.py
       - name: Full-history Gitleaks scan

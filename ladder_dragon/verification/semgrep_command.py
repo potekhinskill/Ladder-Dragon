@@ -19,7 +19,7 @@ SEMGREP_ROOT = PROJECT_ROOT / ".semgrep-venv"
 SEMGREP_BIN = SEMGREP_ROOT / "bin" / "semgrep"
 SEMGREP_PYTHON = SEMGREP_ROOT / "bin" / "python"
 RULE_CONFIG = PROJECT_ROOT / ".semgrep" / "ladder-dragon.yml"
-EXPECTED_VERSION = "1.168.0"
+EXPECTED_VERSION = "1.168.0+ld.1"
 PRODUCTION_TARGETS = ("ladder_dragon", "bin", "deploy", "FastAPI")
 RULE_MARKER = re.compile(r"# ruleid: (?P<rule>ladder-dragon\.[a-z0-9-]+)")
 
@@ -57,8 +57,9 @@ def _verify_toolchain() -> bool:
     completed = subprocess.run(
         (
             str(SEMGREP_PYTHON),
-            "-c",
-            "import importlib.metadata; print(importlib.metadata.version('semgrep'))",
+            "-I",
+            str(PROJECT_ROOT / "ladder_dragon/verification/semgrep_environment.py"),
+            str(PROJECT_ROOT),
         ),
         cwd=PROJECT_ROOT,
         capture_output=True,
@@ -67,7 +68,7 @@ def _verify_toolchain() -> bool:
         check=False,
         env=_scanner_environment(),
     )
-    return completed.returncode == 0 and completed.stdout.strip() == EXPECTED_VERSION
+    return completed.returncode == 0
 
 
 def _base_command() -> list[str]:
@@ -130,13 +131,21 @@ def _production_scan() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rules-test", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--rules-test", action="store_true")
+    mode.add_argument("--compatibility-test", action="store_true")
     args = parser.parse_args(argv)
     (PROJECT_ROOT / ".runtime").mkdir(parents=True, exist_ok=True)
     if not _verify_toolchain():
         print(
-            "Semgrep 1.168.0 is unavailable; install requirements/semgrep.lock",
+            "Verified Semgrep 1.168.0+ld.1 is unavailable; run python -m bin.install_semgrep",
             file=sys.stderr,
         )
         return 2
+    if args.compatibility_test:
+        completed = subprocess.run(
+            [str(SEMGREP_PYTHON), "-I", str(PROJECT_ROOT / "ladder_dragon/verification/semgrep_compatibility.py")],
+            cwd=PROJECT_ROOT, env=_scanner_environment(), timeout=60, check=False,
+        )
+        return 0 if completed.returncode == 0 else 1
     return _rules_test() if args.rules_test else _production_scan()

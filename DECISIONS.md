@@ -1,5 +1,16 @@
 # Engineering decisions
 
+### 2026-10-26 — Bind downstream analyzer use to source and installed provenance
+
+- **Context:** upstream analyzer constraints exclude patched dependencies required by the security audit.
+- **Decision:** use a separately versioned downstream distribution with pinned source, wheel, and installed code digests.
+- **Guards:** preserve upstream code and licenses; use normal hash-locked resolution, exact installed dependencies, and verified launchers.
+- **Bootstrap:** install pinned packaging tools before the analyzer so installation records a verifiable archive hash.
+- **Evidence:** Linux and macOS checks compare real rule results; Linux builds reproduce the expected hashes with networking prohibited.
+- **Coverage:** audit the unchanged upstream identity separately from all resolved dependencies; an unpublished local version is not an advisory identity.
+- **Limits:** bounded API tests do not establish universal compatibility, release readiness, or production trading authority.
+- **Reuse:** dependency repair in isolated development tools must preserve mandatory checks and require explicit downstream maintenance ownership.
+
 ### 2026-10-26 — Separate private input custody from external archives
 
 - **Context:** fixed exFAT ownership cannot satisfy root-owned mode 0700 for protected diagnostic inputs.

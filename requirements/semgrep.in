@@ -1,2 +1,31 @@
-# Semgrep is isolated because its Click constraint conflicts with the runtime.
-semgrep==1.168.0
+# Dependencies of semgrep==1.168.0+ld.1; wheel provenance is in semgrep-build.json.
+# Install the wheel and this complete lock together through bin.install_semgrep.
+attrs>=21.3
+boltons~=21.0
+click-option-group~=0.5
+click~=8.1.8
+colorama~=0.4.0
+exceptiongroup~=1.2.0
+glom>=23.3
+jsonschema~=4.25.1
+mcp==1.30.0
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-http==1.45.1
+opentelemetry-instrumentation-requests==0.66b1
+opentelemetry-instrumentation-threading==0.66b1
+packaging>=21.0
+peewee~=3.14
+pyjwt[crypto]==2.15.0
+requests~=2.22
+rich>=13.5.2
+ruamel.yaml>=0.18.15
+ruamel.yaml.clib==0.2.15
+semantic-version~=2.10.0
+tomli~=2.4.0
+typing-extensions~=4.2
+urllib3~=2.0
+wcmatch~=8.3
+certifi==2026.10.19
+setuptools==84.1.0
+pip==26.2

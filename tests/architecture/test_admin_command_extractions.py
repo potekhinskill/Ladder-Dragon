@@ -25,12 +25,17 @@ DIGESTS = {
     "check_technical_english": "85ba13cd577da3d9152e15a9eb2a88dbc48280f646d57969a40077ebc10247ee",
     "semgrep_scan": "ff74ce9d98c8ab29f79d8340653ea9af331ad013f5524790499179da315f913d",
 }
+# 2.20.355 intentionally changes provenance verification and adds dependency API checks.
+# Keep the relocation fingerprint above as historical evidence, not the current contract.
+REVIEWED_BEHAVIOR_DIGESTS = {
+    "semgrep_scan": "6f6b50cc9bd8319f1a0ba0ff5d09e072e4ce9548718b6e086a20ece197a79db4",
+}
 
 
 @pytest.mark.parametrize("name", ADMIN_COMMANDS)
-def test_original_syntax_and_offline_command(name, tmp_path):
+def test_reviewed_syntax_and_offline_command(name, tmp_path):
     source = ROOT / (ADMIN_COMMANDS[name].replace(".", "/") + ".py")
-    assert extraction_digest(ast.parse(source.read_text())) == DIGESTS[name]
+    assert extraction_digest(ast.parse(source.read_text())) == REVIEWED_BEHAVIOR_DIGESTS.get(name, DIGESTS[name])
     # English has no parser; execute its real read-only check against the checkout.
     args = [] if name == "check_technical_english" else ["--help"]
     result = subprocess.run([sys.executable, "-m", f"bin.{name}", *args], cwd=tmp_path,

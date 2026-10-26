@@ -239,6 +239,20 @@
 - **Correction:** add the dated section before rerunning verification. Record actual results after the run finishes.
 - **Prevention:** update all version surfaces together before starting a full candidate test run.
 
+### 2026-10-26 — Preserved a tool environment inside the recursive source scan
+
+- **Impact:** the complete test run scanned third-party language data and failed after the analyzer migration.
+- **Root cause:** the old scanner environment was preserved under `.runtime`, although the language test excludes only the canonical environment names.
+- **Correction:** move that exact preserved environment outside the repository without deleting it or changing the language check.
+- **Prevention:** inspect recursive source inventories before choosing an environment preservation path; keep developer environment copies outside source roots.
+
+### 2026-10-26 — Repeated publication without a current dependency audit
+
+- **Impact:** release 2.20.354 failed the remote dependency audit; Raspberry Pi remained on 2.20.353.
+- **Root cause:** the local release PASS was accepted without the separate current advisory check required by the earlier lesson.
+- **Correction:** prepare a new candidate with repaired locks; preserve the published tag and require current audits before publication.
+- **Prevention:** document the isolated audit environment and check all four lock sets before requesting publication authority.
+
 ### 2026-09-09 — Published before checking the current dependency advisory database
 
 - **Impact:** release 2.20.334 failed the remote dependency audit. Raspberry Pi deployment remained blocked.

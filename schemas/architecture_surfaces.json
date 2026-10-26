@@ -81,6 +81,7 @@
     "bin/run_dashboard.py": "python_command",
     "bin/run_mainnet_validation_batch.py": "python_command",
     "bin/semgrep_scan.py": "python_command",
+    "bin/install_semgrep.py": "python_command",
     "bin/stats_view.py": "python_command",
     "bin/supervisor_ctl.sh": "shell_command",
     "bin/testnet_soak_monitor.py": "python_command",

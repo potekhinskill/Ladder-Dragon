@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.355] — 2026-10-26
+
+### Security
+- Update certificate trust, package build tooling, and audit file locking after the 2.20.354 dependency audit failure.
+- Preserve Python 3.10 runtime support; resolve audit-only dependencies with Python 3.11 or newer.
+- Keep the published 2.20.354 tag unchanged; do not authorize API collection or remove HALT.
+
+### Verified
+- After analyzer integration, pass 5695 tests with two existing skips, compilation, all five safety audits, and documentation checks.
+- Pass the installed analyzer compatibility check, all 11 rule fixtures, and the 574-file production scan.
+- Pass 86 deployment contract tests and the Technical English check on the updated local dependencies.
+- Verify hashed installation and dependency consistency for the runtime, combined CI/audit, and isolated Semgrep environments.
+- The current runtime, CI, and audit package sets report no known vulnerabilities.
+- The previous Semgrep package set reports 20 advisories across MCP, OpenTelemetry API, and PyJWT.
+- Upstream Semgrep 1.182.1 still excludes the required MCP and OpenTelemetry fixes through its dependency constraints.
+- On 2026-10-26, a standard pip dry run confirms ResolutionImpossible for Semgrep 1.182.1 with MCP 1.30.0.
+- The upstream develop branch retains the same incompatible constraints; the project uses a separately versioned downstream package.
+- Verify an isolated macOS arm64 downstream prototype, version 1.168.0+ld.1, without forced installation or changes to upstream code.
+- Pass eight builder tests; reproduce identical wheel hashes and preserve all 161 upstream code and data entries.
+- Match the original scanner across 11 rules and 569 project files with network access prohibited.
+- Verify telemetry, nine MCP tool registrations, and JWT behavior; these checks do not prove complete API compatibility.
+- Audit resolved prototype dependencies and the unchanged upstream identity separately; the package auditor skips the unpublished local wheel.
+- Reproduce pinned wheels inside Linux aarch64 and x86_64; preserve all 176 upstream code and data entries for each Linux wheel.
+- Match the original analyzer across all 11 rules on Linux with networking prohibited; x86_64 covers 574 production files.
+- Integrate hash-verified installation, exact dependency-set checks, installed payload checks, and launcher integrity checks.
+- Require dependency API checks in local and release profiles; retain every existing scanner rule and production check.
+- Require separate CI audits for analyzer dependencies, unchanged upstream identity, and Raspberry Pi dependencies without advisory exclusions.
+- Preserve the previous local scanner environment; do not publish, update Raspberry Pi, collect API data, or change HALT.
+- Complete immutable release verification and obtain exact-SHA authorization before publication or Raspberry Pi deployment.
+
 ## [2.20.354] — 2026-10-20
 
 ### Changed

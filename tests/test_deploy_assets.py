@@ -1555,8 +1555,14 @@ def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_r
     ):
         lock = read(relative)
         assert "--hash=sha256:" in lock
-    assert "setuptools==83.0.0" in read("requirements/raspberry.lock")
-    assert "setuptools==83.0.0" in read("requirements/ci.lock")
+        assert "certifi==2026.10.19" in lock
+    for relative in ("requirements/raspberry.lock", "requirements/ci.lock"):
+        assert "setuptools==84.1.0" in read(relative)
+        assert "setuptools==83.0.0" not in read(relative)
+        assert "filelock==" not in read(relative)
+    assert read("pyproject.toml").count("setuptools==84.1.0") == 2
+    assert "filelock==4.2.1" in read("requirements/audit.lock")
+    assert "filelock==3.31.0" not in read("requirements/audit.lock")
     assert "cryptography==50.0.0" in read("requirements/raspberry.lock")
     assert "cryptography==50.0.0" in read("requirements/ci.lock")
     assert "cryptography==49.0.0" not in read("requirements/raspberry.lock")
@@ -1568,8 +1574,8 @@ def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_r
     assert "--require-hashes -r requirements/raspberry.lock" in updater
     assert "--require-hashes -r requirements/ci.lock" in workflow
     assert "--require-hashes -r requirements/audit.lock" in workflow
-    assert "--require-hashes -r requirements/semgrep.lock" in workflow
-    assert "python -m venv .semgrep-venv" in workflow
+    assert "python -m bin.install_semgrep" in workflow
+    assert "--no-deps -r requirements/semgrep.lock" in workflow
 
 
 def test_ci_scans_full_history_and_pins_actions_by_commit():

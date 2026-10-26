@@ -110,6 +110,7 @@ OPERATOR_COMMANDS = {
 }
 
 CONTRACTS = {
+    "install_semgrep": ("ladder_dragon.verification.semgrep_install_command", "main"),
     "account_enrollment": ("ladder_dragon.strategy.enrollment_operator", "main"),
     "ladder_pct_runner": ("ladder_dragon.strategy.ladder_pct_command", "main"),
     "prediction_experiment": ("ladder_dragon.strategy.prediction.experiment_command", "main"),

@@ -27,6 +27,7 @@ For architecture continuation, apply the [maintenance selection policy](ARCHITEC
 For shared timing, preserve [telemetry ownership and callback lifetime](../DECISIONS.md#2026-10-20--keep-shared-startup-telemetry-outside-orchestration).
 For dashboard route extraction, preserve [live dependency bindings](../DECISIONS.md#2026-09-25--preserve-live-bindings-when-extracting-dashboard-routes) and inspect nested route inventories.
 For interpreter bootstrap changes, preserve [dependency-free early loading](../DECISIONS.md#2026-09-25--keep-interpreter-bootstrap-outside-verification-imports).
+For analyzer dependency changes, inspect [the isolated toolchain contract](SEMGREP_TOOLCHAIN.md) and [downstream provenance](../DECISIONS.md#2026-10-26--bind-downstream-analyzer-use-to-source-and-installed-provenance).
 For financial boundary changes, inspect [domain authorities](DOMAIN_AUTHORITIES.md).
 For partial-entry protection, preserve [terminal settlement before protection](../DECISIONS.md#2026-09-13--settle-partial-entry-remainders-before-protection).
 For net inventory, preserve [durable settlement revalidation](../DECISIONS.md#2026-09-13--revalidate-durable-buy-settlement-at-inventory-consumers).

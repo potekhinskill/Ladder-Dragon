@@ -1,4 +1,5 @@
 # Security tooling is isolated from runtime and pinned with hashes in audit.lock.
+# The repaired filelock dependency requires Python 3.11 or newer.
 -c ci.lock
 pip==26.2
 pip-audit==2.9.0

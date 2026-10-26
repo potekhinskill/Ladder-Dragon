@@ -31,6 +31,7 @@ Help output is the authoritative option reference.
 | `history_launch_prepare` | checks the pinned host and storage offline; an explicit manifest pin enables protected input verification, never collection |
 | `account_diagnostic_launch` | requires explicit diagnostic approval and a terminal; delegates one attempt to the bounded parent, never historical collection |
 | `semgrep_scan` | tests local Semgrep rules or scans production Python paths |
+| `install_semgrep` | builds and installs the isolated hash-verified downstream analyzer |
 | `production_soak_report` | builds a sanitized non-mutating soak report |
 | `record_bnb_public` | records bounded public BNBUSDT observations in two exclusive external slots, with optional pinned-credential signing; never authorizes replay |
 | `testnet_soak_monitor` | monitors Testnet safety with bounded source retries |
@@ -80,15 +81,14 @@ The exit codes are `0` for PASS, `1` for FAILED, and `2` for BLOCKED.
 Install Semgrep in its isolated environment:
 
 ```bash
-python3 -m venv .semgrep-venv
-.semgrep-venv/bin/python -m pip install \
-  --require-hashes -r requirements/semgrep.lock
+.venv/bin/python -m bin.install_semgrep
 ```
 
 Test the local rules before you scan production paths:
 
 ```bash
 .venv/bin/python -m bin.semgrep_scan --rules-test
+.venv/bin/python -m bin.semgrep_scan --compatibility-test
 .venv/bin/python -m bin.semgrep_scan
 ```
 

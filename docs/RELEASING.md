@@ -47,12 +47,22 @@ Run the Technical English check before you create the candidate commit:
 Create the isolated Semgrep environment before local or release verification:
 
 ```bash
-python3 -m venv .semgrep-venv
-.semgrep-venv/bin/python -m pip install \
-  --require-hashes -r requirements/semgrep.lock
+.venv/bin/python -m bin.install_semgrep
 ```
 
 Do not install Semgrep in the application environment or on Raspberry Pi.
+The installer builds the reviewed downstream wheel and verifies its complete isolated environment.
+See [the analyzer contract](SEMGREP_TOOLCHAIN.md) for provenance, compatibility checks, and supported platforms.
+
+Run the current dependency audit before publication, not only after the GitHub push.
+Use a separate Python 3.11 or newer environment for the audit tools.
+Install both `requirements/ci.lock` and `requirements/audit.lock` with `--require-hashes`.
+Install the project with `--no-deps --no-build-isolation -e .`, then run `python -m pip_audit --skip-editable`.
+The audit lock requires Python 3.11 or newer; runtime and CI locks retain Python 3.10 support.
+Audit the Raspberry Pi and Semgrep locks separately without dependency resolution; their complete hash-locked entries define the package sets.
+Also audit `requirements/semgrep-upstream-audit.in` without dependency resolution to check the unchanged upstream analyzer identity.
+An unavailable advisory service or a nonzero audit result blocks publication.
+Do not ignore advisories or treat an older local release PASS as a current dependency audit.
 
 ## 2. Verify the immutable candidate SHA
 

@@ -1,0 +1,2 @@
+# Unchanged upstream code identity; audit separately without resolving dependencies.
+semgrep==1.168.0
